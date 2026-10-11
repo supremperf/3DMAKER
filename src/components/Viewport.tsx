@@ -24,6 +24,8 @@ import {
   Sparkles,
   LocateFixed,
   Layers3,
+  Palette,
+  Settings2,
 } from "lucide-react";
 import * as THREE from "three";
 import { ViewportEngine, viewport } from "../engine/ViewportEngine";
@@ -117,7 +119,7 @@ export function Viewport() {
   return (
     <main
       ref={root}
-      className={`viewport ${tool === "measure" ? "measuring" : ""} ${draggingFile ? "file-hover" : ""}`}
+      className={`viewport edit-${mode} ${tool === "measure" ? "measuring" : ""} ${draggingFile ? "file-hover" : ""}`}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes("Files")) {
           e.preventDefault();
@@ -183,6 +185,17 @@ export function Viewport() {
           </div>
         </div>
         <div className="viewport-top-actions">
+          <select
+            className="compact-edit-mode"
+            aria-label="Mode d’édition"
+            value={mode}
+            onChange={(e) => s.setMode(e.target.value as EditMode)}
+          >
+            <option value="object">Objet</option>
+            <option value="vertex">Sommets</option>
+            <option value="edge">Arêtes</option>
+            <option value="face">Faces</option>
+          </select>
           <span className="viewport-live-label">
             <span />
             TEMPS RÉEL
@@ -205,11 +218,25 @@ export function Viewport() {
             key={item.id}
             icon={item.icon}
             label={item.label}
+            caption={
+              {
+                select: "Choisir",
+                translate: "Déplacer",
+                rotate: "Tourner",
+                scale: "Taille",
+                measure: "Mesurer",
+              }[item.id]
+            }
             active={tool === item.id}
             onClick={() => s.setTool(item.id)}
           />
         ))}
         <span className="rail-divider" />
+        <IconButton
+          icon={Settings2}
+          label="Tous les outils (Ctrl K)"
+          onClick={() => s.openDialog("commands")}
+        />
         <IconButton
           icon={Magnet}
           label={

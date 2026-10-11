@@ -29,7 +29,14 @@ import {
 } from "../types";
 
 export type DialogName =
-  "export" | "render" | "settings" | "advanced" | "help" | null;
+  | "export"
+  | "render"
+  | "settings"
+  | "advanced"
+  | "help"
+  | "create"
+  | "commands"
+  | null;
 interface EditorState {
   document: SceneDocument;
   savedDocument: SceneDocument;
@@ -40,7 +47,7 @@ interface EditorState {
   axisLock: "x" | "y" | "z" | null;
   transformSpace: "world" | "local";
   snap: boolean;
-  panel: "properties" | "ai";
+  panel: "properties" | "ai" | "background";
   aiTab: "image" | "chat" | "history";
   dialog: DialogName;
   advancedTool: string;
@@ -132,7 +139,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   transformSpace: "world",
   snap: false,
   panel: "properties",
-  aiTab: "image",
+  aiTab: "chat",
   dialog: null,
   advancedTool: "extrude",
   past: [],

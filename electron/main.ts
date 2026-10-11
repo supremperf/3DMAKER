@@ -171,6 +171,7 @@ app
       });
     handle("settings:get", () => backend.getSettings());
     handle("settings:save", (value: AISettings) => backend.saveSettings(value));
+    handle("ai:local", () => backend.probeLocalAI());
     handle("ai:request", (value: ProxyRequest) => backend.request(value));
     handle("ai:asset", (url: string) => backend.fetchAsset(url));
     handle("generations:list", () => backend.getGenerations());

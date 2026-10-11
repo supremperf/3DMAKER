@@ -10,6 +10,8 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   DEFAULT_AI_SETTINGS,
+  upgradeAISettings,
+  type LocalAIProbe,
   type AISettings,
   type GenerationRecord,
   type GenerationSummary,
@@ -38,6 +40,7 @@ export function assertHttpUrl(value: string): URL {
   return url;
 }
 export function validateSettings(value: AISettings): AISettings {
+  value = upgradeAISettings(value);
   if (!value?.image || !value?.chat)
     throw new Error("Configuration IA invalide.");
   assertHttpUrl(value.image.endpoint);
@@ -54,7 +57,10 @@ export function validateSettings(value: AISettings): AISettings {
     throw new Error("Choisissez entre 100 et 300 000 polygones.");
   if (
     typeof value.image.texture !== "boolean" ||
-    typeof value.chat.jsonMode !== "boolean"
+    typeof value.chat.jsonMode !== "boolean" ||
+    typeof value.chat.review !== "boolean" ||
+    typeof value.chat.vision !== "boolean" ||
+    !["low", "medium", "high"].includes(value.chat.reasoning)
   )
     throw new Error("Options IA invalides.");
   if (!value.chat.model.trim() || !value.image.model.trim())
@@ -111,6 +117,29 @@ export class LocalBackend {
       join(this.directory, "settings.json"),
       JSON.stringify(safe, null, 2),
     );
+  }
+  async probeLocalAI(): Promise<LocalAIProbe> {
+    // Endpoint fixe : aucun port arbitraire ni transfert de clé cloud.
+    try {
+      const response = await fetch("http://127.0.0.1:11434/v1/models", {
+        signal: AbortSignal.timeout(4000),
+        redirect: "error",
+      });
+      if (!response.ok) return { available: false, models: [] };
+      const data = JSON.parse(
+        (await readLimited(response)).toString("utf8"),
+      ) as { data?: { id?: unknown }[] };
+      const models = Array.isArray(data.data)
+        ? data.data
+            .flatMap((m) =>
+              typeof m.id === "string" && m.id.length < 150 ? [m.id] : [],
+            )
+            .slice(0, 100)
+        : [];
+      return { available: models.length > 0, models };
+    } catch {
+      return { available: false, models: [] };
+    }
   }
   async request(request: ProxyRequest): Promise<ProxyResponse> {
     const settings = await this.getSettings();

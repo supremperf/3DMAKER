@@ -15,6 +15,9 @@ export interface AISettings {
     model: string;
     jsonMode: boolean;
     temperature: number;
+    review: boolean;
+    vision: boolean;
+    reasoning: "low" | "medium" | "high";
   };
 }
 export const DEFAULT_AI_SETTINGS: AISettings = {
@@ -30,11 +33,18 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
   chat: {
     endpoint: "https://api.openai.com/v1",
     apiKey: "",
-    model: "gpt-4.1-mini",
+    model: "gpt-6-sol",
     jsonMode: true,
     temperature: 0.3,
+    review: true,
+    vision: true,
+    reasoning: "high",
   },
 };
+export interface LocalAIProbe {
+  available: boolean;
+  models: string[];
+}
 export interface ProxyRequest {
   service: "image" | "chat";
   url?: string;
@@ -64,6 +74,7 @@ export interface DesktopBridge {
   platform: string;
   getSettings(): Promise<AISettings>;
   saveSettings(settings: AISettings): Promise<void>;
+  probeLocalAI(): Promise<LocalAIProbe>;
   request(request: ProxyRequest): Promise<ProxyResponse>;
   fetchAsset(url: string): Promise<{ base64: string; mime: string }>;
   openFile(
@@ -85,4 +96,14 @@ export interface DesktopBridge {
   deleteGeneration(id: string): Promise<void>;
   setFullscreen(): Promise<void>;
   windowAction(action: "minimize" | "maximize" | "close"): void;
+}
+
+/** Complète les paramètres des anciennes versions sans écraser les clés ou endpoints personnels. */
+export function upgradeAISettings(value: AISettings): AISettings {
+  if (!value?.image || !value?.chat)
+    throw new Error("Configuration IA invalide.");
+  return {
+    image: { ...DEFAULT_AI_SETTINGS.image, ...value.image },
+    chat: { ...DEFAULT_AI_SETTINGS.chat, ...value.chat },
+  };
 }

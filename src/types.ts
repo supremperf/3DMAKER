@@ -71,6 +71,10 @@ export interface SceneNode {
 }
 export interface RenderSettings {
   background: string;
+  backgroundMode: "color" | "gradient" | "image" | "environment";
+  backgroundEnd: string;
+  backgroundImage?: string;
+  environmentRotation: number;
   exposure: number;
   gamma: number;
   toneMapping: "aces" | "filmic" | "linear";
@@ -145,6 +149,9 @@ export const DEFAULT_MATERIAL: MaterialData = {
 };
 export const DEFAULT_RENDER: RenderSettings = {
   background: "#25282b",
+  backgroundMode: "gradient",
+  backgroundEnd: "#444b55",
+  environmentRotation: 0,
   exposure: 1.15,
   gamma: 2.2,
   toneMapping: "aces",

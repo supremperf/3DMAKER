@@ -18,7 +18,11 @@ import {
   Plus,
   MousePointer2,
   Cuboid,
+  Palette,
+  Search,
+  PanelLeftClose,
 } from "lucide-react";
+import { useWorkspace } from "../store/workspace";
 import { useEditor } from "../store/editor";
 import { handleImport, saveProject } from "../engine/io";
 import { Button, IconButton } from "./common";
@@ -31,6 +35,8 @@ interface Item {
   separator?: boolean;
 }
 export function TopBar() {
+  const expert = useWorkspace((s) => s.expert);
+  const focused = useWorkspace((s) => s.focused);
   const doc = useEditor((s) => s.document);
   const saved = useEditor((s) => s.savedDocument);
   const past = useEditor((s) => s.past);
@@ -149,6 +155,21 @@ export function TopBar() {
     ],
     Affichage: [
       {
+        label: "Changer le fond…",
+        action: () => useEditor.setState({ panel: "background" }),
+      },
+      {
+        label: "Outils et commandes…",
+        shortcut: "Ctrl K",
+        action: () => s.openDialog("commands"),
+      },
+      {
+        label: "Mode concentration",
+        checked: focused,
+        shortcut: "F10",
+        action: () => useWorkspace.getState().toggleFocus(),
+      },
+      {
         label: "Grille infinie",
         shortcut: "G",
         checked: doc.render.grid,
@@ -194,7 +215,7 @@ export function TopBar() {
       { label: "Historique des générations", action: () => ai("history") },
       {
         label: "Configurer les API…",
-        action: () => s.openDialog("settings"),
+        action: () => s.openDialog("settings", "chat"),
         separator: true,
       },
     ],
@@ -301,21 +322,73 @@ export function TopBar() {
           )}
         </div>
         <div className="topbar-actions">
+          <div className="history-buttons">
+            <IconButton
+              icon={Undo2}
+              label={`Annuler${past.length ? ` : ${past.at(-1)!.label}` : ""} (Ctrl Z)`}
+              disabled={!past.length}
+              onClick={s.undo}
+            />
+            <IconButton
+              icon={Redo2}
+              label={`Rétablir${future.length ? ` : ${future.at(-1)!.label}` : ""} (Ctrl Maj Z)`}
+              disabled={!future.length}
+              onClick={s.redo}
+            />
+          </div>
           <Button
-            className="save-button"
-            icon={Save}
-            onClick={() => void saveProject()}
-          >
-            Enregistrer<kbd>Ctrl S</kbd>
-          </Button>
-          <Button
+            className="create-button"
             variant="primary"
-            icon={Upload}
-            onClick={() => s.openDialog("export")}
+            icon={Plus}
+            onClick={() => s.openDialog("create")}
           >
-            Exporter
-            <ChevronDown size={12} />
+            Ajouter
           </Button>
+          <Button
+            icon={Palette}
+            onClick={() => useEditor.setState({ panel: "background" })}
+          >
+            Fond
+          </Button>
+          <Button
+            className="assistant-top-button"
+            icon={Sparkles}
+            onClick={() => ai("chat")}
+          >
+            Assistant
+          </Button>
+          <IconButton
+            icon={Search}
+            label="Outils et commandes (Ctrl K)"
+            onClick={() => s.openDialog("commands")}
+          />
+          <IconButton
+            icon={Save}
+            label="Enregistrer le projet (Ctrl S)"
+            onClick={() => void saveProject()}
+          />
+          <Button icon={Upload} onClick={() => s.openDialog("export")}>
+            Exporter
+          </Button>
+          <button
+            className={`workspace-mode-toggle ${expert ? "active" : ""}`}
+            title="Le mode expert affiche tous les outils. Le mode simple garde l’essentiel."
+            aria-pressed={expert}
+            onClick={() => useWorkspace.getState().setExpert(!expert)}
+          >
+            {expert ? "Expert" : "Simple"}
+            <ChevronDown size={11} />
+          </button>
+          <IconButton
+            icon={PanelLeftClose}
+            label={
+              focused
+                ? "Quitter le mode concentration (F10)"
+                : "Mode concentration (F10)"
+            }
+            active={focused}
+            onClick={() => useWorkspace.getState().toggleFocus()}
+          />
           {window.desktop && (
             <div className="window-controls">
               <IconButton
@@ -337,71 +410,6 @@ export function TopBar() {
           )}
         </div>
       </header>
-      <div className="workspace-toolbar">
-        <div className="workspace-tabs">
-          <button
-            className="workspace-tab selected"
-            onClick={() => useEditor.setState({ panel: "properties" })}
-          >
-            <Cuboid size={15} />
-            Modélisation
-          </button>
-          <button className="workspace-tab" onClick={() => ai("image")}>
-            <Sparkles size={14} />
-            Création IA<span className="new-badge">IA</span>
-          </button>
-        </div>
-        <div className="toolbar-divider" />
-        <div className="history-buttons">
-          <IconButton
-            icon={Undo2}
-            label={`Annuler${past.length ? ` : ${past.at(-1)!.label}` : ""} (Ctrl Z)`}
-            disabled={!past.length}
-            onClick={s.undo}
-          />
-          <IconButton
-            icon={Redo2}
-            label={`Rétablir${future.length ? ` : ${future.at(-1)!.label}` : ""} (Ctrl Maj Z)`}
-            disabled={!future.length}
-            onClick={s.redo}
-          />
-        </div>
-        <div className="toolbar-divider" />
-        <div className="mode-select">
-          <MousePointer2 size={13} />
-          <select
-            aria-label="Mode d’édition"
-            value={mode}
-            onChange={(e) => s.setMode(e.target.value as typeof mode)}
-          >
-            <option value="object">Mode objet</option>
-            <option value="vertex">Sommets</option>
-            <option value="edge">Arêtes</option>
-            <option value="face">Faces</option>
-          </select>
-          <kbd>Tab</kbd>
-        </div>
-        <div className="toolbar-spacer" />
-        <span className="autosave-note">
-          <span />
-          Sauvegarde locale automatique
-        </span>
-        <Button icon={Camera} onClick={() => s.openDialog("render")}>
-          Rendu rapide
-        </Button>
-        <Button
-          className="ai-toolbar-button"
-          icon={Sparkles}
-          onClick={() => ai("image")}
-        >
-          Photo vers 3D
-        </Button>
-        <IconButton
-          icon={Keyboard}
-          label="Raccourcis clavier (?)"
-          onClick={() => s.openDialog("help")}
-        />
-      </div>
     </>
   );
 }

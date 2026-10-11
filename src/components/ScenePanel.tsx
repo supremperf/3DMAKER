@@ -37,11 +37,14 @@ import {
   Flashlight,
   ArrowRight,
   Diamond,
+  Settings2,
 } from "lucide-react";
+import { useWorkspace } from "../store/workspace";
 import { useEditor } from "../store/editor";
 import { primitiveNames, type Primitive } from "../types";
-import { IconButton, PrimitiveIcon, Section } from "./common";
+import { IconButton, PrimitiveIcon, Section, Button } from "./common";
 export function ScenePanel() {
+  const expert = useWorkspace((s) => s.expert);
   const nodes = useEditor((s) => s.document.nodes);
   const selection = useEditor((s) => s.selection);
   const tool = useEditor((s) => s.tool);
@@ -145,13 +148,15 @@ export function ScenePanel() {
   return (
     <aside className="scene-panel">
       <div className="panel-header">
-        <h2>EXPLORATEUR</h2>
+        <h2>Votre scène</h2>
         <div className="add-anchor">
           <IconButton
             icon={Plus}
             label="Ajouter un objet ou une lumière"
             active={addMenu}
-            onClick={() => setAddMenu(!addMenu)}
+            onClick={() =>
+              expert ? setAddMenu(!addMenu) : s.openDialog("create")
+            }
           />
           {addMenu && (
             <>
@@ -243,7 +248,7 @@ export function ScenePanel() {
         >
           <ChevronDown size={13} className={!expanded ? "-rotate-90" : ""} />
           <Folder size={15} />
-          <span>Collection principale</span>
+          <span>Objets de la scène</span>
           <span className="count-badge">{nodes.length}</span>
         </button>
         {expanded && (
@@ -362,6 +367,20 @@ export function ScenePanel() {
         <span>{meshes.length} maillages</span>
         <span>{nodes.filter((n) => n.light).length} lumières</span>
       </div>
+      {!expert && (
+        <div className="scene-simple-actions">
+          <Button
+            icon={Plus}
+            variant="primary"
+            onClick={() => s.openDialog("create")}
+          >
+            Ajouter une création
+          </Button>
+          <Button icon={Settings2} onClick={() => s.openDialog("commands")}>
+            Outils et commandes<kbd>Ctrl K</kbd>
+          </Button>
+        </div>
+      )}
       <div className="tools-scroll">
         <Section
           title="AJOUTER UNE PRIMITIVE"
@@ -471,14 +490,14 @@ export function ScenePanel() {
       </div>
       <button
         className="ai-invite"
-        onClick={() => useEditor.setState({ panel: "ai", aiTab: "image" })}
+        onClick={() => useEditor.setState({ panel: "ai", aiTab: "chat" })}
       >
         <span className="ai-invite-icon">
           <Sparkles size={19} />
         </span>
         <span>
-          <strong>Donnez vie à vos images</strong>
-          <small>Découvrez la création 3D par IA</small>
+          <strong>Un coup de main ?</strong>
+          <small>Créez avec votre assistant</small>
         </span>
         <ArrowRight size={14} />
       </button>

@@ -11,11 +11,21 @@ import {
   generationRecord,
   prepareImage,
 } from "../services/imageAI";
-import { askAssistant } from "../services/assistant";
+import {
+  prepareAssistant,
+  applyAssistantProposal,
+  type AssistantProposal,
+} from "../services/assistant";
+import {
+  CHAT_PRESETS,
+  chooseRecommendedModel,
+  isOfficialOpenAI,
+} from "../services/chatProviders";
 import { useEditor } from "./editor";
 import { uid, type GenerationProgress, type ChatMessage } from "../types";
 let imageController: AbortController | null = null;
 let chatController: AbortController | null = null;
+let initialization: Promise<void> | null = null;
 interface AIState {
   settings: AISettings;
   loaded: boolean;
@@ -27,6 +37,11 @@ interface AIState {
   chatPending: boolean;
   chatError: string | null;
   lastPrompt: string;
+  proposal: AssistantProposal | null;
+  connection: "unknown" | "checking" | "ready" | "error";
+  connectLocal(): Promise<boolean>;
+  applyProposal(): void;
+  dismissProposal(): void;
   initialize(): Promise<void>;
   saveSettings(settings: AISettings): Promise<void>;
   setImage(file: File): Promise<void>;
@@ -50,20 +65,120 @@ export const useAI = create<AIState>((set, get) => ({
   chatPending: false,
   chatError: null,
   lastPrompt: "",
+  proposal: null,
+  connection: "unknown",
   async initialize() {
-    try {
-      const settings = await bridge.getSettings();
-      set({ settings, loaded: true });
-      const generations = await bridge.getGenerations();
-      set({ generations });
-    } catch (e) {
-      set({ loaded: true });
-      useEditor.getState().notify((e as Error).message, "error");
-    }
+    if (get().loaded) return;
+    if (initialization) return initialization;
+    initialization = (async () => {
+      try {
+        const settings = await bridge.getSettings();
+        if (get().loaded) return;
+        set({ settings, loaded: true });
+        const generations = await bridge.getGenerations();
+        set({ generations });
+        if (!settings.chat.apiKey && isOfficialOpenAI(settings.chat.endpoint)) {
+          const probe = await bridge.probeLocalAI();
+          if (probe.available && get().settings === settings) {
+            const preset = CHAT_PRESETS.find((p) => p.id === "ollama")!;
+            const next = {
+              ...settings,
+              chat: {
+                ...settings.chat,
+                endpoint: preset.endpoint,
+                model:
+                  chooseRecommendedModel(probe.models, preset.endpoint) ||
+                  probe.models[0],
+                apiKey: "",
+                vision: false,
+              },
+            };
+            await get().saveSettings(next);
+            set({ connection: "unknown" });
+            useEditor
+              .getState()
+              .notify(
+                "Ollama détecté : votre modèle local a été sélectionné. Testez la connexion dans Assistant.",
+                "info",
+              );
+          }
+        }
+      } catch (e) {
+        set({ loaded: true });
+        useEditor.getState().notify((e as Error).message, "error");
+      }
+    })().finally(() => {
+      initialization = null;
+    });
+    return initialization;
   },
   async saveSettings(settings) {
+    if (get().chatPending || get().progress.status === "running")
+      throw new Error(
+        "Terminez ou annulez l’opération IA en cours avant de changer de configuration.",
+      );
+    const changed =
+      JSON.stringify(get().settings.chat) !== JSON.stringify(settings.chat);
     await bridge.saveSettings(settings);
-    set({ settings: structuredClone(settings), loaded: true });
+    set({
+      settings: structuredClone(settings),
+      loaded: true,
+      connection: changed ? "unknown" : get().connection,
+      proposal: null,
+    });
+  },
+  async connectLocal() {
+    set({ connection: "checking" });
+    try {
+      const probe = await bridge.probeLocalAI();
+      if (!probe.available)
+        throw new Error(
+          "Ollama n’est pas disponible ici. Installez Ollama et lancez `ollama pull qwen3:8b`, puis `ollama serve`. En aperçu web, le serveur est recherché sur la machine qui exécute 3DMAKER.",
+        );
+      const preset = CHAT_PRESETS.find((p) => p.id === "ollama")!;
+      await get().saveSettings({
+        ...get().settings,
+        chat: {
+          ...get().settings.chat,
+          endpoint: preset.endpoint,
+          model:
+            chooseRecommendedModel(probe.models, preset.endpoint) ||
+            probe.models[0],
+          vision: false,
+          apiKey: "",
+        },
+      });
+      set({ connection: "unknown" });
+      return true;
+    } catch (e) {
+      set({ connection: "error", chatError: (e as Error).message });
+      return false;
+    }
+  },
+  applyProposal() {
+    const proposal = get().proposal;
+    if (!proposal || get().chatPending) return;
+    try {
+      const response = applyAssistantProposal(proposal);
+      set((s) => ({
+        proposal: null,
+        chatError: null,
+        messages: [
+          ...s.messages,
+          {
+            id: uid(),
+            role: "assistant",
+            content: `Plan appliqué : ${response.actionCount} action${response.actionCount > 1 ? "s" : ""}. Vous pouvez tout annuler avec Ctrl Z.`,
+            actionCount: response.actionCount,
+          },
+        ],
+      }));
+    } catch (e) {
+      set({ chatError: (e as Error).message, proposal: null });
+    }
+  },
+  dismissProposal() {
+    set({ proposal: null });
   },
   async setImage(file) {
     try {
@@ -210,22 +325,32 @@ export const useAI = create<AIState>((set, get) => ({
       chatPending: true,
       chatError: null,
       lastPrompt: input,
+      proposal: null,
     });
     try {
-      const response = await askAssistant(
+      const proposal = await prepareAssistant(
         input,
         previous,
         get().settings,
         controller.signal,
       );
+      if (controller.signal.aborted)
+        throw new DOMException("Demande annulée.", "AbortError");
+      const review =
+        get().settings.chat.review && proposal.plan.actions.length > 0;
+      const response = review
+        ? { message: proposal.plan.message, actionCount: 0 }
+        : applyAssistantProposal(proposal);
       set((s) => ({
+        proposal: review ? proposal : null,
+        connection: "ready",
         messages: [
           ...s.messages,
           {
             id: uid(),
             role: "assistant",
             content: response.message,
-            actionCount: response.actionCount,
+            ...(review ? {} : { actionCount: response.actionCount }),
           },
         ],
       }));
@@ -246,6 +371,6 @@ export const useAI = create<AIState>((set, get) => ({
   },
   clearChat() {
     if (!get().chatPending)
-      set({ messages: [], chatError: null, lastPrompt: "" });
+      set({ messages: [], chatError: null, lastPrompt: "", proposal: null });
   },
 }));

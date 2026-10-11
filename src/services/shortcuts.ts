@@ -1,3 +1,4 @@
+import { useWorkspace } from "../store/workspace";
 import { useEditor } from "../store/editor";
 import { handleImport, saveProject } from "../engine/io";
 import { viewport } from "../engine/ViewportEngine";
@@ -24,7 +25,8 @@ export function installShortcuts(): () => void {
       return;
     }
     if (ctrl) {
-      if (key === "s") run(() => void saveProject());
+      if (key === "k") run(() => s.openDialog("commands"));
+      else if (key === "s") run(() => void saveProject());
       else if (key === "o" || key === "i") run(() => void handleImport());
       else if (key === "n")
         run(() => {
@@ -119,6 +121,7 @@ export function installShortcuts(): () => void {
           document.querySelector(".scene-search input") as HTMLInputElement
         )?.focus(),
       );
+    else if (key === "f10") run(() => useWorkspace.getState().toggleFocus());
     else if (key === "f11")
       run(() => {
         if (window.desktop) void window.desktop.setFullscreen();

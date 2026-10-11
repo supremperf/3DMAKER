@@ -105,15 +105,19 @@ L’existence d’un paramètre dans l’interface ne remplace pas les droits, q
 
 ## Assistant OpenAI-compatible
 
-Configurez une URL de base, par exemple `https://api.openai.com/v1` ou `http://localhost:11434/v1`. Une URL se terminant par `/chat/completions` est également reconnue. Le test de connexion utilise `GET /models` ; la conversation utilise `POST /chat/completions`.
+Configurez une URL de base, par exemple `https://api.openai.com/v1` ou `http://localhost:11434/v1`. Une URL se terminant par `/chat/completions` est également reconnue. **Détecter** utilise `GET /models`. **Tester l’IA** et la conversation utilisent `POST /chat/completions` : le premier vérifie une vraie réponse JSON `{ "message": "…", "actions": [] }`, sans action sur la scène, avec une limite réduite de tokens.
 
-Le corps contient `model`, les messages, un contexte de scène (200 premiers objets, sélection et composants), la température, une limite de 12 000 tokens et, si activé, `response_format: {"type":"json_object"}`. Pour les modèles raisonnants OpenAI identifiés `gpt-5` et suivants ou `o1/o3/o4`, la limite utilise `max_completion_tokens` et la température est omise.
+Le corps de conversation contient `model`, les messages et le contexte de scène (**300 objets maximum, sélection prioritaire**, mode de composants, réglages, transformations, matériaux, lumières/caméras et nombre de triangles). Les données binaires de fond/HDR ne sont pas incluses dans ce contexte textuel. Une capture JPEG **896 × 672**, `detail: "low"`, est jointe dans le message utilisateur lorsque la vision est activée. Ce message devient alors un tableau de blocs `text` et `image_url`, au format OpenAI. Le modèle doit accepter les images ; cette option est désactivée dans les préréglages locaux.
+
+Les modèles standards reçoivent `temperature` et `max_tokens: 12000`. Pour les modèles de raisonnement **sur l’origine officielle OpenAI** identifiés `gpt-5` et suivants ou `o1/o3/o4`, la température est omise et le corps utilise `max_completion_tokens: 20000` ainsi que `reasoning_effort: high|medium|low`. Les serveurs compatibles personnalisés ne reçoivent pas automatiquement ces paramètres spécifiques à OpenAI. Si activé, `response_format: {"type":"json_object"}` impose un objet JSON. Le test utilise un effort faible et une limite réduite.
+
+Les préréglages cloud proposent `gpt-6-sol` / `gpt-5.4-mini` et les préréglages locaux Ollama / LM Studio. Les noms proposés ne garantissent ni l’accès du compte ni une qualité mesurée : la découverte et le test doivent vérifier le serveur réel. Aucun modèle de langage ni aucune clé n’est inclus. Le probe local interroge uniquement `http://127.0.0.1:11434/v1/models`, avec un délai de quatre secondes, sans en-tête de clé cloud.
 
 Le serveur doit fournir `choices[0].message.content` comme **chaîne contenant un objet JSON** :
 
 ```json
 {
-  "message": "Le cube est maintenant en acier brossé rouge. J’ai ajouté une sphère bleue et une lumière orange.",
+  "message": "Je propose de rendre le cube en acier brossé rouge et d’ajouter une sphère bleue avec une lumière orange.",
   "actions": [
     {
       "type": "set_material",
@@ -146,20 +150,24 @@ Le serveur doit fournir `choices[0].message.content` comme **chaîne contenant u
 
 ### Commandes autorisées
 
-| `type`                             | Champs et effet                                                                                                                                                                    |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `create_primitive`                 | `primitive` cube/sphere/cylinder/cone/torus/plane/tube/box, `name`, `position`, `rotation`, `scale`, `material`                                                                    |
-| `create_light`                     | `lightType` ambient/directional/point/spot, `name`, `position`, `color`, `intensity`, `distance`, `angle`, `targetPoint`, `castShadow`                                             |
-| `create_camera`                    | `name`, `position`, `targetPoint`, `fov`                                                                                                                                           |
-| `set_material`                     | `target`, `material` validé : couleur, rugosité, métal, émission, opacité, transmission, IOR, épaisseur, vernis, anisotropie, finition brushed/smooth, faces doubles, ombrage plat |
-| `transform`                        | `target`, champs de transformation et `relative` ; addition de position/rotation et multiplication d’échelle en mode relatif                                                       |
-| `rename` / `visibility` / `delete` | Cible et nom/visibilité, ou suppression d’objets non verrouillés                                                                                                                   |
-| `duplicate` / `array`              | Cible, `offset`, nombre 2–100 ; répétition radiale facultative autour de Y                                                                                                         |
-| `boolean`                          | Deux `targets`, `operation` union/difference/intersection ; la différence retire B de A                                                                                            |
-| `merge`                            | Au moins deux maillages, transformations appliquées                                                                                                                                |
-| `mesh_operation`                   | extrude/bevel/subdivide/mirror/lathe/sweep/spin avec paramètres de l’opération, `faces` facultatives, `axis`, `center`, `path`                                                     |
-| `render`                           | Fond, exposition, environnement intégré, ombres et filaire                                                                                                                         |
+| `type`                             | Champs et effet                                                                                                                                                                                                |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `create_asset`                     | `asset` robot/castle/house/living-room/rocket/forest/vase/city, `name`, `size` 0.05–20, `position`, `color` ; vrais maillages de bibliothèque                                                                  |
+| `layout`                           | `target`, `operation` ground/center ; pose au sol ou centrage du groupe en XZ                                                                                                                                  |
+| `set_light`                        | `target`, `color`, `intensity`, `distance`, `angle`, `targetPoint`, `castShadow` ; cible lumière requise                                                                                                       |
+| `set_camera`                       | `target`, `fov` 5–150, `targetPoint` ; cible caméra requise                                                                                                                                                    |
+| `create_primitive`                 | `primitive` cube/sphere/cylinder/cone/torus/plane/tube/box, `name`, `position`, `rotation`, `scale`, `material`                                                                                                |
+| `create_light`                     | `lightType` ambient/directional/point/spot, `name`, `position`, `color`, `intensity`, `distance`, `angle`, `targetPoint`, `castShadow`                                                                         |
+| `create_camera`                    | `name`, `position`, `targetPoint`, `fov`                                                                                                                                                                       |
+| `set_material`                     | `target`, `material` validé : couleur, rugosité, métal, émission, opacité, transmission, IOR, épaisseur, vernis, anisotropie, finition brushed/smooth, faces doubles, ombrage plat                             |
+| `transform`                        | `target`, champs de transformation et `relative` ; addition de position/rotation et multiplication d’échelle en mode relatif                                                                                   |
+| `rename` / `visibility` / `delete` | Cible et nom/visibilité, ou suppression d’objets non verrouillés                                                                                                                                               |
+| `duplicate` / `array`              | Cible, `offset`, nombre 2–100 ; répétition radiale facultative autour de Y                                                                                                                                     |
+| `boolean`                          | Deux `targets`, `operation` union/difference/intersection ; la différence retire B de A                                                                                                                        |
+| `merge`                            | Au moins deux maillages, transformations appliquées                                                                                                                                                            |
+| `mesh_operation`                   | extrude/bevel/subdivide/mirror/lathe/sweep/spin avec paramètres de l’opération, `faces` facultatives, `axis`, `center`, `path`                                                                                 |
+| `render`                           | `backgroundMode` color/gradient/environment, `background`, `backgroundEnd`, `environmentRotation` −180..180, `environmentIntensity` 0..3, `grid`, `axes`, exposition, environnement intégré, ombres et filaire |
 
 `target` : ID ou nom exact, `selection`, `all`, ou tableau de ces valeurs. Les cibles verrouillées sont exclues. Les distances sont en mètres et les rotations des actions en **degrés**, converties en radians dans le document. Les noms et vecteurs sont bornés. Les faces sélectionnées au moment de la demande sont utilisées pour une extrusion/Spin si aucune liste explicite n’est fournie.
 
-Maximum 200 actions et 3 000 objets pour un plan. Les actions sont calculées dans un worker sur un instantané, avec contrôle de scène obsolète avant application. **Tout le plan ou rien**, une entrée d’historique. Une simple réponse sans action ne crée pas une fausse modification. Le logiciel ne lance aucun code reçu du modèle.
+Maximum 200 actions et 3 000 objets pour un plan. Les actions sont calculées dans un worker sur un instantané. Par défaut, la proposition attend **Appliquer le plan** ou **Ignorer** ; aucune modification n’est faite avant confirmation. L’identité du document est vérifiée après la réponse, après le calcul et au moment de l’application. Modifier la scène rend le plan périmé. Le mode d’application directe est optionnel (`chat.review: false`). **Tout le plan ou rien**, une entrée d’historique. Une simple réponse sans action ne crée pas une fausse modification. Le logiciel ne lance aucun code reçu du modèle.

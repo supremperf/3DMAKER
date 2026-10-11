@@ -17,6 +17,10 @@ import {
   Lock,
   Box,
 } from "lucide-react";
+import { Modal } from "./Modal";
+import { ChatSetup } from "./ChatSetup";
+import { CreationDialog } from "./CreationDialog";
+import { CommandDialog } from "./CommandDialog";
 import { useEditor, selectedMesh } from "../store/editor";
 import { useAI } from "../store/ai";
 import {
@@ -51,6 +55,8 @@ import type { Vec3 } from "../types";
 export function Dialogs() {
   const dialog = useEditor((s) => s.dialog);
   if (!dialog) return null;
+  if (dialog === "create") return <CreationDialog />;
+  if (dialog === "commands") return <CommandDialog />;
   return (
     <>
       {dialog === "settings" ? (
@@ -67,98 +73,12 @@ export function Dialogs() {
     </>
   );
 }
-function Modal({
-  title,
-  subtitle,
-  icon: Icon = Settings2,
-  children,
-  footer,
-  className = "",
-}: {
-  title: string;
-  subtitle?: string;
-  icon?: typeof Settings2;
-  children: ReactNode;
-  footer?: ReactNode;
-  className?: string;
-}) {
-  const root = useRef<HTMLDivElement>(null);
-  const headingId = "dialog-heading";
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    root.current?.focus();
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        useEditor.getState().openDialog(null);
-      }
-      if (e.key === "Tab") {
-        const inputs = Array.from(
-          root.current?.querySelectorAll<HTMLElement>(
-            'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]',
-          ) || [],
-        );
-        const first = inputs[0],
-          last = inputs.at(-1);
-        if (!first || !last) return;
-        if (
-          e.shiftKey &&
-          (document.activeElement === first ||
-            document.activeElement === root.current)
-        ) {
-          e.preventDefault();
-          last.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
-    };
-    document.addEventListener("keydown", handler, true);
-    return () => {
-      document.removeEventListener("keydown", handler, true);
-      previous?.focus();
-    };
-  }, []);
-  return (
-    <div
-      className="modal-backdrop"
-      onPointerDown={(e) => {
-        if (e.target === e.currentTarget) useEditor.getState().openDialog(null);
-      }}
-    >
-      <div
-        ref={root}
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={headingId}
-        className={`modal ${className}`}
-      >
-        <header className="modal-header">
-          <span className="modal-icon">
-            <Icon size={21} />
-          </span>
-          <div>
-            <h2 id={headingId}>{title}</h2>
-            {subtitle && <p>{subtitle}</p>}
-          </div>
-          <IconButton
-            icon={X}
-            label="Fermer la fenêtre de dialogue"
-            onClick={() => useEditor.getState().openDialog(null)}
-          />
-        </header>
-        <div className="modal-body">{children}</div>
-        {footer && <footer className="modal-footer">{footer}</footer>}
-      </div>
-    </div>
-  );
-}
 function SettingsDialog() {
   const original = useAI((s) => s.settings);
   const [draft, setDraft] = useState<AISettings>(structuredClone(original));
-  const [tab, setTab] = useState<"image" | "chat">("image");
+  const [tab, setTab] = useState<"image" | "chat">(
+    useEditor.getState().advancedTool === "image" ? "image" : "chat",
+  );
   const [showKeys, setShowKeys] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -186,35 +106,10 @@ function SettingsDialog() {
       setSaving(false);
     }
   };
-  const testChat = async () => {
-    if (!(await save(false))) return;
-    setSaving(true);
-    setTestResult("");
-    try {
-      const url = `${draft.chat.endpoint.replace(/\/$/, "").replace(/\/chat\/completions$/, "")}/models`;
-      const response = await bridge.request({
-        service: "chat",
-        method: "GET",
-        url,
-      });
-      const models = (response.data as { data?: { id: string }[] })?.data;
-      if (!Array.isArray(models))
-        throw new Error(
-          "Le serveur a répondu, mais la liste de modèles ne respecte pas le format OpenAI.",
-        );
-      setTestResult(
-        `Connexion établie · ${models.length} modèle${models.length > 1 ? "s" : ""} disponible${models.length > 1 ? "s" : ""}${models.some((m) => m.id === draft.chat.model) ? " · modèle configuré trouvé" : " · vérifiez le nom du modèle"}.`,
-      );
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  };
   return (
     <Modal
-      title="Connectez votre intelligence créative"
-      subtitle="Vos fournisseurs. Vos modèles. Vos clés, sur cet appareil."
+      title="Connecter votre IA"
+      subtitle="Les services sont préconfigurés. Il ne manque que votre accès personnel."
       icon={Sparkles}
       className="settings-modal"
       footer={
@@ -409,72 +304,13 @@ function SettingsDialog() {
           )}
         </div>
       ) : (
-        <div className="settings-fields">
-          <label className="stacked-field">
-            <span>URL de base OpenAI-compatible</span>
-            <input
-              value={draft.chat.endpoint}
-              onChange={(e) => patchChat({ endpoint: e.target.value })}
-              aria-label="URL du serveur de chat"
-              spellCheck={false}
-            />
-            <small>
-              Exemples : https://api.openai.com/v1 · http://localhost:11434/v1
-            </small>
-          </label>
-          <label className="stacked-field">
-            <span>
-              Clé API <small>facultative pour un serveur local</small>
-            </span>
-            <input
-              type={showKeys ? "text" : "password"}
-              value={draft.chat.apiKey}
-              onChange={(e) => patchChat({ apiKey: e.target.value })}
-              aria-label="Clé API de chat"
-              autoComplete="off"
-            />
-          </label>
-          <label className="stacked-field">
-            <span>Nom du modèle</span>
-            <input
-              value={draft.chat.model}
-              onChange={(e) => patchChat({ model: e.target.value })}
-              aria-label="Nom du modèle de chat"
-            />
-          </label>
-          <Toggle
-            label="Demander une réponse JSON structurée"
-            value={draft.chat.jsonMode}
-            onChange={(jsonMode) => patchChat({ jsonMode })}
-          />
-          <RangeInput
-            label="Créativité / température"
-            value={draft.chat.temperature}
-            max={2}
-            onChange={(temperature) => patchChat({ temperature })}
-          />
-          <div className="information-card">
-            <ShieldCheck size={18} />
-            <p>
-              L’assistant ne peut pas exécuter de code arbitraire. Il propose
-              des commandes de scène validées, appliquées en une seule action
-              annulable.
-            </p>
-          </div>
-          <Button
-            icon={saving ? LoaderCircle : ExternalLink}
-            disabled={saving}
-            onClick={() => void testChat()}
-          >
-            Enregistrer et tester la connexion
-          </Button>
-          {testResult && (
-            <div className="success-card">
-              <Check size={15} />
-              <p>{testResult}</p>
-            </div>
-          )}
-        </div>
+        <ChatSetup
+          draft={draft}
+          onChange={setDraft}
+          busy={saving}
+          setBusy={setSaving}
+          showKeys={showKeys}
+        />
       )}
       {error && (
         <div className="error-card" role="alert">
@@ -993,7 +829,8 @@ function RenderDialog() {
   const [width, setWidth] = useState(1920);
   const [height, setHeight] = useState(1080);
   const [format, setFormat] = useState<"image/png" | "image/jpeg">("image/png");
-  const [includeGrid, setIncludeGrid] = useState(true);
+  const [includeGrid, setIncludeGrid] = useState(false);
+  const [transparent, setTransparent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -1011,7 +848,14 @@ function RenderDialog() {
         return;
       }
       void engine
-        .capture(960, 540, "image/png", includeGrid, controller.signal)
+        .capture(
+          960,
+          540,
+          "image/png",
+          includeGrid,
+          controller.signal,
+          transparent && format === "image/png",
+        )
         .then((blob) => {
           url = URL.createObjectURL(blob);
           if (active) {
@@ -1033,7 +877,7 @@ function RenderDialog() {
       clearTimeout(timer);
       if (url) URL.revokeObjectURL(url);
     };
-  }, [render, includeGrid]);
+  }, [render, includeGrid, transparent, format]);
   const capture = async () => {
     setBusy(true);
     setError("");
@@ -1045,6 +889,8 @@ function RenderDialog() {
         Math.round(height),
         format,
         includeGrid,
+        undefined,
+        transparent,
       );
       const saved = await saveBytes(
         `3dmaker-rendu-${width}x${height}.${format === "image/png" ? "png" : "jpg"}`,
@@ -1188,6 +1034,12 @@ function RenderDialog() {
             </label>
           </div>
           <Toggle
+            label="Fond transparent (PNG)"
+            value={transparent && format === "image/png"}
+            disabled={format !== "image/png"}
+            onChange={setTransparent}
+          />
+          <Toggle
             label="Inclure la grille"
             value={includeGrid}
             onChange={setIncludeGrid}
@@ -1198,7 +1050,9 @@ function RenderDialog() {
           <ColorField
             label="Fond du viewport"
             value={render.background}
-            onChange={(background) => s.setRender({ background })}
+            onChange={(background) =>
+              s.setRender({ background, backgroundMode: "color" })
+            }
           />
           <label className="form-row">
             <span>Courbe tonale</span>

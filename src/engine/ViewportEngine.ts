@@ -21,6 +21,7 @@ import {
   waitForMaterialTextures,
 } from "./materials";
 import { createEnvironment } from "./environments";
+import { SceneBackground } from "./background";
 import type { SceneNode, SceneDocument, Vec3 } from "../types";
 
 interface Callbacks {
@@ -67,6 +68,10 @@ export class ViewportEngine {
   private environmentTarget?: THREE.WebGLRenderTarget;
   private environmentKey = "";
   private environmentVersion = 0;
+  private environmentReady: Promise<void> = Promise.resolve();
+  private background = new SceneBackground(this.scene, (message) =>
+    useEditor.getState().notify(message, "error"),
+  );
   private rightPointerStart: { x: number; y: number } | null = null;
   private pointerStart: {
     x: number;
@@ -92,7 +97,7 @@ export class ViewportEngine {
   ) {
     this.renderer = new THREE.WebGLRenderer({
       antialias: false,
-      alpha: false,
+      alpha: true,
       preserveDrawingBuffer: true,
       powerPreference: "high-performance",
     });
@@ -235,6 +240,7 @@ export class ViewportEngine {
     );
   }
   private updateAspect(aspect: number) {
+    this.background.update(useEditor.getState().document.render, aspect);
     if (this.camera instanceof THREE.PerspectiveCamera)
       this.camera.aspect = aspect;
     else {
@@ -391,7 +397,7 @@ export class ViewportEngine {
     }
     this.root.updateMatrixWorld(true);
     const s = document.render;
-    this.scene.background = new THREE.Color(s.background);
+    this.background.update(s, this.width / this.height);
     this.renderer.toneMapping = {
       aces: THREE.ACESFilmicToneMapping,
       filmic: THREE.AgXToneMapping,
@@ -413,7 +419,7 @@ export class ViewportEngine {
     if (key !== this.environmentKey) {
       this.environmentKey = key;
       const version = ++this.environmentVersion;
-      void createEnvironment(this.renderer, s)
+      this.environmentReady = createEnvironment(this.renderer, s)
         .then((target) => {
           if (this.destroyed || version !== this.environmentVersion) {
             target.dispose();
@@ -422,6 +428,10 @@ export class ViewportEngine {
           this.scene.environment = target.texture;
           this.environmentTarget?.dispose();
           this.environmentTarget = target;
+          this.background.update(
+            useEditor.getState().document.render,
+            this.width / this.height,
+          );
         })
         .catch((error) => {
           this.environmentKey = "";
@@ -1151,11 +1161,19 @@ export class ViewportEngine {
     mime: "image/png" | "image/jpeg",
     includeGrid: boolean,
     signal?: AbortSignal,
+    transparent = false,
   ): Promise<Blob> {
     const result = this.captureQueue.then(async () => {
       if (signal?.aborted)
         throw new DOMException("Aperçu annulé.", "AbortError");
-      return this.captureFrame(width, height, mime, includeGrid);
+      return this.captureFrame(
+        width,
+        height,
+        mime,
+        includeGrid,
+        signal,
+        transparent,
+      );
     });
     this.captureQueue = result.then(
       () => undefined,
@@ -1168,9 +1186,17 @@ export class ViewportEngine {
     height: number,
     mime: "image/png" | "image/jpeg",
     includeGrid: boolean,
+    signal?: AbortSignal,
+    transparent = false,
   ): Promise<Blob> {
     const limit = Math.min(8192, this.renderer.capabilities.maxTextureSize);
-    if (width < 128 || height < 128 || width > limit || height > limit)
+    if (
+      ![width, height].every(Number.isInteger) ||
+      width < 128 ||
+      height < 128 ||
+      width > limit ||
+      height > limit
+    )
       throw new Error(`Résolution autorisée : 128 à ${limit} pixels.`);
     await Promise.all(
       [...this.records.values()].flatMap((record) => {
@@ -1180,6 +1206,11 @@ export class ViewportEngine {
           : [];
       }),
     );
+    await Promise.all([this.background.ready(), this.environmentReady]);
+    if (signal?.aborted || this.destroyed)
+      throw new DOMException("Capture annulée.", "AbortError");
+    const oldBackground = this.scene.background,
+      oldAlpha = this.renderer.getClearAlpha();
     const oldRatio = this.renderer.getPixelRatio(),
       oldGrid = this.grid.visible,
       oldFloor = this.floor.visible,
@@ -1190,11 +1221,11 @@ export class ViewportEngine {
       this.componentHelpers,
       this.measureHelpers,
     ].map((o) => o.visible);
-    const objectHelpers: THREE.Object3D[] = [];
+    const objectHelpers: { object: THREE.Object3D; visible: boolean }[] = [];
     this.root.traverse((o) => {
       if (o.userData.helper) {
+        objectHelpers.push({ object: o, visible: o.visible });
         o.visible = false;
-        objectHelpers.push(o);
       }
     });
     [
@@ -1206,14 +1237,19 @@ export class ViewportEngine {
     this.grid.visible = includeGrid && oldGrid;
     this.axes.visible = false;
     this.floor.visible = oldFloor;
-    this.renderer.setPixelRatio(1);
-    this.renderer.setSize(width, height, false);
-    this.composer.setPixelRatio(1);
-    this.composer.setSize(width, height);
-    this.updateAspect(width / height);
-    this.fxaa.uniforms.resolution.value.set(1 / width, 1 / height);
-    this.composer.render();
     try {
+      this.renderer.setPixelRatio(1);
+      this.renderer.setSize(width, height, false);
+      this.composer.setPixelRatio(1);
+      this.composer.setSize(width, height);
+      this.updateAspect(width / height);
+      this.fxaa.uniforms.resolution.value.set(1 / width, 1 / height);
+      if (transparent && mime === "image/png") {
+        this.scene.background = null;
+        this.renderer.setClearAlpha(0);
+        this.grid.visible = false;
+      }
+      this.composer.render();
       return await new Promise<Blob>((resolve, reject) =>
         this.renderer.domElement.toBlob(
           (blob) =>
@@ -1234,7 +1270,11 @@ export class ViewportEngine {
         this.componentHelpers,
         this.measureHelpers,
       ].forEach((o, i) => (o.visible = helperStates[i]));
-      objectHelpers.forEach((o) => (o.visible = true));
+      objectHelpers.forEach(
+        ({ object, visible }) => (object.visible = visible),
+      );
+      this.scene.background = oldBackground;
+      this.renderer.setClearAlpha(oldAlpha);
       this.renderer.setPixelRatio(oldRatio);
       this.composer.setPixelRatio(oldRatio);
       this.resize();
@@ -1275,6 +1315,7 @@ export class ViewportEngine {
     this.orbit.dispose();
     this.gizmo.dispose();
     this.environmentTarget?.dispose();
+    this.background.dispose();
     this.composer.passes.forEach((pass) => pass.dispose());
     this.composer.dispose();
     this.disposeObject(this.scene);

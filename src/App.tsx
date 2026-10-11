@@ -18,10 +18,13 @@ import { Viewport } from "./components/Viewport";
 import { Dialogs } from "./components/Dialogs";
 import { useEditor } from "./store/editor";
 import { useAI } from "./store/ai";
+import { useWorkspace } from "./store/workspace";
 import { installShortcuts } from "./services/shortcuts";
 import { loadAutosave, saveAutosave } from "./services/persistence";
 import { validateDocument } from "./engine/io";
 export default function App() {
+  const expert = useWorkspace((s) => s.expert);
+  const focused = useWorkspace((s) => s.focused);
   useEffect(() => {
     const removeShortcuts = installShortcuts();
     void useAI.getState().initialize();
@@ -115,7 +118,9 @@ export default function App() {
     };
   }, []);
   return (
-    <div className="studio-app">
+    <div
+      className={`studio-app ${expert ? "expert-mode" : "simple-mode"} ${focused ? "focus-mode" : ""}`}
+    >
       <TopBar />
       <div className="studio-workspace">
         <ScenePanel />

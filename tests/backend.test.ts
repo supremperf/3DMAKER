@@ -23,6 +23,42 @@ afterEach(async () => {
   await rm(directory, { recursive: true, force: true });
 });
 describe("Pont IA sécurisé et stockage local", () => {
+  it("détecte un vrai serveur local sans lui envoyer une clé cloud", async () => {
+    const settings = structuredClone(DEFAULT_AI_SETTINGS);
+    settings.chat.apiKey = "cle-privee-cloud";
+    await backend.saveSettings(settings);
+    const fetch = vi.fn(
+      async (_url: RequestInfo | URL, _options?: RequestInit) =>
+        new Response(JSON.stringify({ data: [{ id: "qwen3:8b" }] }), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    expect(await backend.probeLocalAI()).toEqual({
+      available: true,
+      models: ["qwen3:8b"],
+    });
+    expect(fetch.mock.calls[0][0]).toBe("http://127.0.0.1:11434/v1/models");
+    expect(fetch.mock.calls[0][1]).not.toHaveProperty("headers.Authorization");
+  });
+  it("ne prétend pas détecter un modèle si le serveur local est absent", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("Connexion refusée");
+      }),
+    );
+    expect(await backend.probeLocalAI()).toEqual({
+      available: false,
+      models: [],
+    });
+  });
+  it("refuse une profondeur de raisonnement inconnue", () => {
+    const settings = structuredClone(DEFAULT_AI_SETTINGS);
+    (settings.chat as unknown as { reasoning: string }).reasoning =
+      "imaginaire";
+    expect(() => validateSettings(settings)).toThrow("Options");
+  });
   it("retourne une configuration vide sans clé inventée", async () => {
     const settings = await backend.getSettings();
     expect(settings.image.apiKey).toBe("");

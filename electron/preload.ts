@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { DesktopBridge } from "../src/shared";
 const bridge: DesktopBridge = {
   platform: process.platform,
+  probeLocalAI: () => ipcRenderer.invoke("ai:local"),
   getSettings: () => ipcRenderer.invoke("settings:get"),
   saveSettings: (settings) => ipcRenderer.invoke("settings:save", settings),
   request: (request) => ipcRenderer.invoke("ai:request", request),

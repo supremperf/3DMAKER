@@ -24,6 +24,9 @@ import {
   Square,
   WandSparkles,
 } from "lucide-react";
+import { ASSETS } from "../engine/library";
+import { addLibraryAsset } from "./CreationDialog";
+import { isChatConfigured, isOfficialOpenAI } from "../services/chatProviders";
 import { useAI } from "../store/ai";
 import { useEditor } from "../store/editor";
 import { imageProviderNames } from "../services/imageAI";
@@ -75,7 +78,7 @@ function ImagePanel() {
   const running = ai.progress.status === "running";
   const s = useEditor.getState();
   const configured =
-    !!ai.settings.image.apiKey ||
+    (!!ai.settings.image.apiKey && !!ai.settings.image.endpoint) ||
     ["generic", "luma"].includes(ai.settings.image.provider);
   const quality = async (value: string) => {
     try {
@@ -186,7 +189,7 @@ function ImagePanel() {
         </div>
         <button
           className="text-button"
-          onClick={() => s.openDialog("settings")}
+          onClick={() => s.openDialog("settings", "image")}
         >
           <Settings2 size={12} />
           Configurer
@@ -208,7 +211,7 @@ function ImagePanel() {
         variant="primary"
         icon={running ? LoaderCircle : WandSparkles}
         className={`generate-button ${running ? "is-loading" : ""}`}
-        disabled={!ai.image || running || !ai.loaded}
+        disabled={!ai.image || running || !ai.loaded || !configured}
         onClick={() => void ai.generate()}
       >
         {running
@@ -246,7 +249,7 @@ function ImagePanel() {
             <p>{ai.progress.error}</p>
             <button
               className="text-button"
-              onClick={() => s.openDialog("settings")}
+              onClick={() => s.openDialog("settings", "image")}
             >
               Vérifier les paramètres
               <ArrowUpRight size={12} />
@@ -352,6 +355,10 @@ function ChatPanel() {
   const [input, setInput] = useState("");
   const bottom = useRef<HTMLDivElement>(null);
   const past = useEditor((s) => s.past);
+  const document = useEditor((s) => s.document);
+  const configured = isChatConfigured(ai.settings.chat);
+  const stale = !!ai.proposal && ai.proposal.before !== document;
+  const configure = () => useEditor.getState().openDialog("settings", "chat");
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" });
   }, [ai.messages, ai.chatPending, ai.chatError]);
@@ -367,12 +374,12 @@ function ChatPanel() {
       <div className="chat-heading">
         <span>
           <Sparkles size={16} />
-          <strong>Votre copilote 3D</strong>
+          <strong>Votre assistant de création</strong>
         </span>
         <IconButton
           icon={Settings2}
           label="Configurer le modèle de chat"
-          onClick={() => useEditor.getState().openDialog("settings")}
+          onClick={configure}
         />
         <IconButton
           icon={Trash2}
@@ -381,32 +388,99 @@ function ChatPanel() {
           onClick={ai.clearChat}
         />
       </div>
+      {!configured && (
+        <div className="assistant-connect-card">
+          <Sparkles size={19} />
+          <div>
+            <strong>Une IA, votre choix.</strong>
+            <p>
+              Service cloud préconfiguré ou modèle local. Ajoutez votre clé
+              personnelle pour le cloud ; aucune clé n’est livrée dans le code.
+            </p>
+          </div>
+          <Button variant="primary" onClick={configure}>
+            Connecter l’IA
+          </Button>
+          <button
+            className="text-button"
+            disabled={ai.connection === "checking"}
+            onClick={() => void ai.connectLocal()}
+          >
+            {ai.connection === "checking"
+              ? "Recherche du modèle local…"
+              : "Détecter Ollama"}
+          </button>
+        </div>
+      )}
+      {configured && (
+        <button className="assistant-connection-strip" onClick={configure}>
+          <span
+            className={
+              ai.connection === "ready" ? "ready-dot" : "connection-dot"
+            }
+          />
+          {isOfficialOpenAI(ai.settings.chat.endpoint)
+            ? "IA cloud"
+            : "Serveur personnel"}{" "}
+          · {ai.settings.chat.model}
+          <Settings2 size={12} />
+        </button>
+      )}
       <div className="chat-messages">
         {!ai.messages.length && (
           <div className="chat-welcome">
             <span className="chat-welcome-icon">
               <Sparkles size={30} strokeWidth={1.1} />
             </span>
-            <h3>Votre idée, en quelques mots.</h3>
+            <h3>
+              {configured
+                ? "Votre idée, en quelques mots."
+                : "Créez dès maintenant."}
+            </h3>
             <p>
-              Décrivez ce que vous voulez créer. L’assistant agit directement
-              dans votre scène.
+              {configured
+                ? "Décrivez votre idée. L’assistant prépare un plan validé pour votre scène."
+                : "Ces créations locales sont prêtes à ajouter, même sans IA connectée."}
             </p>
-            <div className="chat-suggestions">
-              {[
-                "Rends ce cube en acier rouge",
-                "Crée un château médiéval détaillé",
-                "Ajoute trois lumières orange sous cet objet",
-              ].map((text) => (
-                <button key={text} onClick={() => setInput(text)}>
-                  {text}
-                  <ArrowUpRight size={12} />
-                </button>
-              ))}
-            </div>
-            <span className="chat-model">
-              Modèle : {ai.settings.chat.model}
-            </span>
+            {!configured && (
+              <div className="local-creations">
+                {ASSETS.slice(0, 6).map((a) => (
+                  <button
+                    key={a.id}
+                    title={a.description}
+                    onClick={() => addLibraryAsset(a.id)}
+                  >
+                    <Box size={15} />
+                    {a.name}
+                    <PlusSymbol />
+                  </button>
+                ))}
+              </div>
+            )}
+            {configured && (
+              <div className="chat-suggestions">
+                {[
+                  "Rends ce cube en acier rouge",
+                  "Crée un château médiéval détaillé",
+                  "Ajoute trois lumières orange sous cet objet",
+                ].map((text) => (
+                  <button key={text} onClick={() => setInput(text)}>
+                    {text}
+                    <ArrowUpRight size={12} />
+                  </button>
+                ))}
+              </div>
+            )}
+            {configured && (
+              <span className="chat-model">
+                Les plans sont validés. Vous gardez le contrôle.
+              </span>
+            )}
+            {!configured && (
+              <p className="local-creations-note">
+                Bibliothèque procédurale, pas une IA simulée.
+              </p>
+            )}
           </div>
         )}
         {ai.messages.map((message, index) => (
@@ -444,6 +518,57 @@ function ChatPanel() {
             )}
           </div>
         ))}
+        {ai.proposal && (
+          <div className="assistant-plan-card">
+            <span className="plan-eyebrow">
+              PLAN PRÊT · {ai.proposal.plan.actions.length} ACTION
+              {ai.proposal.plan.actions.length > 1 ? "S" : ""}
+            </span>
+            <h3>{stale ? "La scène a changé" : "Vous décidez de la suite."}</h3>
+            {stale ? (
+              <p>
+                Cette proposition est périmée. Redemandez un plan pour conserver
+                vos modifications.
+              </p>
+            ) : (
+              <>
+                <ul>
+                  {ai.proposal.plan.actions.slice(0, 5).map((a, i) => (
+                    <li key={i}>
+                      <Check size={12} />
+                      {describeAction(a)}
+                    </li>
+                  ))}
+                </ul>
+                {ai.proposal.plan.actions.length > 5 && (
+                  <details>
+                    <summary>
+                      Voir les {ai.proposal.plan.actions.length - 5} autres
+                      actions
+                    </summary>
+                    <ul>
+                      {ai.proposal.plan.actions.slice(5).map((a, i) => (
+                        <li key={i}>{describeAction(a)}</li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </>
+            )}
+            <div>
+              <Button
+                variant="primary"
+                icon={Check}
+                disabled={stale}
+                onClick={ai.applyProposal}
+              >
+                Appliquer le plan
+              </Button>
+              <Button onClick={ai.dismissProposal}>Ignorer</Button>
+            </div>
+            <small>Aucune modification avant votre confirmation.</small>
+          </div>
+        )}
         {ai.chatPending && (
           <div className="assistant-thinking">
             <LoaderCircle size={14} className="spin" />
@@ -480,7 +605,12 @@ function ChatPanel() {
           onChange={(e) => setInput(e.target.value)}
           rows={3}
           maxLength={8000}
-          placeholder="Décrivez ce que vous imaginez…"
+          disabled={!configured || !ai.loaded}
+          placeholder={
+            configured
+              ? "Décrivez ce que vous imaginez…"
+              : "Connectez l’IA pour discuter librement…"
+          }
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
@@ -494,14 +624,16 @@ function ChatPanel() {
             icon={Send}
             label="Envoyer la demande"
             className="send-message"
-            disabled={ai.chatPending || !input.trim()}
+            disabled={ai.chatPending || !input.trim() || !configured}
             onClick={send}
           />
         </div>
       </div>
       <div className="chat-safety">
         <ShieldCheck size={12} />
-        Actions validées. Toujours annulables.
+        {ai.settings.chat.vision
+          ? "Une capture de la scène accompagne votre demande."
+          : "Actions validées. Toujours annulables."}
       </div>
     </div>
   );
@@ -582,4 +714,36 @@ function GenerationGallery() {
       </p>
     </div>
   );
+}
+
+function describeAction(action: Record<string, unknown>): string {
+  const labels: Record<string, string> = {
+    create_asset: "Ajouter une création",
+    create_primitive: "Ajouter une forme",
+    create_light: "Ajouter une lumière",
+    create_camera: "Ajouter une caméra",
+    set_material: "Modifier l’apparence",
+    transform: "Transformer",
+    rename: "Renommer",
+    visibility: "Changer la visibilité",
+    delete: "Supprimer",
+    duplicate: "Dupliquer",
+    array: "Créer une répétition",
+    boolean: "Calculer une booléenne",
+    merge: "Fusionner",
+    mesh_operation: "Modifier le maillage",
+    render: "Régler le fond et le rendu",
+    layout: "Disposer les objets",
+    set_light: "Régler l’éclairage",
+    set_camera: "Régler la caméra",
+  };
+  const subject =
+    typeof action.name === "string"
+      ? action.name
+      : typeof action.asset === "string"
+        ? ASSETS.find((a) => a.id === action.asset)?.name
+        : typeof action.target === "string" && action.target !== "selection"
+          ? action.target
+          : undefined;
+  return `${labels[String(action.type)] || String(action.type)}${subject ? ` · ${subject}` : ""}`;
 }

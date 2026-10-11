@@ -5,6 +5,7 @@ import type {
   ProxyResponse,
   GenerationRecord,
   GenerationSummary,
+  LocalAIProbe,
 } from "../shared";
 declare global {
   interface Window {
@@ -33,6 +34,8 @@ async function call<T>(action: string, payload?: unknown): Promise<T> {
   return data.result;
 }
 export const bridge = {
+  probeLocalAI: (): Promise<LocalAIProbe> =>
+    window.desktop ? window.desktop.probeLocalAI() : call("probeLocalAI"),
   getSettings: (): Promise<AISettings> =>
     window.desktop ? window.desktop.getSettings() : call("getSettings"),
   saveSettings: (s: AISettings): Promise<void> =>

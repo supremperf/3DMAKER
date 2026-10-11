@@ -21,6 +21,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "postinstall": "node node_modules/electron/install.js",
     "test:browser": "node tests/browser/smoke.mjs",
+    "test:browser:simple": "node tests/browser/simple.mjs",
     "package:sources": "node scripts/package-sources.mjs"
   },
   "dependencies": {

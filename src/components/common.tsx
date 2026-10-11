@@ -11,23 +11,26 @@ import type { Primitive } from "../types";
 export function IconButton({
   icon: Icon,
   label,
+  caption,
   active = false,
   className = "",
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   icon: LucideIcon;
   label: string;
+  caption?: string;
   active?: boolean;
 }) {
   return (
     <button
       type="button"
-      className={`icon-button ${active ? "active" : ""} ${className}`}
+      className={`icon-button ${caption ? "with-caption" : ""} ${active ? "active" : ""} ${className}`}
       title={label}
       aria-label={label}
       {...props}
     >
       <Icon size={16} strokeWidth={1.7} />
+      {caption && <span className="icon-caption">{caption}</span>}
     </button>
   );
 }
@@ -227,6 +230,10 @@ export function ColorField({
           type="color"
           value={value}
           disabled={disabled}
+          onFocus={() => useEditor.getState().beginTransaction()}
+          onBlur={() =>
+            useEditor.getState().endTransaction(`Modifier ${label}`)
+          }
           onChange={(e) => onChange(e.target.value)}
         />
         <span>{value.toUpperCase()}</span>

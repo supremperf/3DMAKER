@@ -33,6 +33,9 @@ function developmentBridge(): Plugin {
           const { action, payload } = JSON.parse(raw);
           let result: unknown;
           switch (action) {
+            case "probeLocalAI":
+              result = await backend.probeLocalAI();
+              break;
             case "getSettings":
               result = await backend.getSettings();
               break;

@@ -1,3 +1,4 @@
+import { createAsset, isAssetId, layoutNodes } from "../engine/library";
 import { brushedNormalTexture } from "../engine/texturePresets";
 import {
   createPrimitive,
@@ -193,6 +194,67 @@ export function executePlan(
   };
   for (const action of plan.actions) {
     switch (action.type) {
+      case "create_asset": {
+        if (!isAssetId(action.asset))
+          throw new Error("Création de bibliothèque IA inconnue.");
+        const asset = createAsset(action.asset, {
+          size: number(action.size, 1, 0.05, 20),
+          position: vector(action.position, [0, 0, 0]),
+          name:
+            action.name === undefined
+              ? undefined
+              : string(action.name, "Création"),
+          color: action.color === undefined ? undefined : color(action.color),
+        });
+        nodes.push(...asset);
+        created.push(...asset.map((n) => n.id));
+        break;
+      }
+      case "layout": {
+        if (!["ground", "center"].includes(action.operation as string))
+          throw new Error("Disposition IA invalide.");
+        nodes = layoutNodes(
+          nodes,
+          targets(action.target, true).map((n) => n.id),
+          action.operation as "ground" | "center",
+        );
+        break;
+      }
+      case "set_light": {
+        update(action.target, (n) => {
+          if (!n.light) throw new Error("La cible n’est pas une lumière.");
+          return {
+            ...n,
+            light: {
+              ...n.light,
+              color:
+                action.color === undefined
+                  ? n.light.color
+                  : color(action.color),
+              intensity: number(action.intensity, n.light.intensity, 0, 10000),
+              distance: number(action.distance, n.light.distance, 0, 10000),
+              angle: number(action.angle, n.light.angle, 1, 89),
+              target: vector(action.targetPoint, n.light.target),
+              castShadow: bool(action.castShadow, n.light.castShadow),
+            },
+          };
+        });
+        break;
+      }
+      case "set_camera": {
+        update(action.target, (n) => {
+          if (!n.camera) throw new Error("La cible n’est pas une caméra.");
+          return {
+            ...n,
+            camera: {
+              ...n.camera,
+              fov: number(action.fov, n.camera.fov, 5, 150),
+              target: vector(action.targetPoint, n.camera.target),
+            },
+          };
+        });
+        break;
+      }
       case "create_primitive": {
         if (!primitives.includes(action.primitive as Primitive))
           throw new Error("Primitive IA non autorisée.");
@@ -492,7 +554,38 @@ export function executePlan(
         );
         break;
       case "render": {
-        if (action.background) render.background = color(action.background);
+        if (action.background) {
+          render.background = color(action.background);
+          render.backgroundMode = "color";
+        }
+        if (action.backgroundEnd)
+          render.backgroundEnd = color(action.backgroundEnd);
+        if (action.backgroundMode !== undefined) {
+          if (
+            !["color", "gradient", "environment"].includes(
+              action.backgroundMode as string,
+            )
+          )
+            throw new Error("Type de fond IA invalide.");
+          render.backgroundMode = action.backgroundMode as
+            "color" | "gradient" | "environment";
+        }
+        if (action.environmentRotation !== undefined)
+          render.environmentRotation = number(
+            action.environmentRotation,
+            0,
+            -180,
+            180,
+          );
+        if (action.environmentIntensity !== undefined)
+          render.environmentIntensity = number(
+            action.environmentIntensity,
+            1,
+            0,
+            3,
+          );
+        if (action.grid !== undefined) render.grid = bool(action.grid, true);
+        if (action.axes !== undefined) render.axes = bool(action.axes, true);
         if (action.exposure !== undefined)
           render.exposure = number(action.exposure, 1, 0.1, 5);
         if (action.environment) {

@@ -18,6 +18,7 @@ import {
   Settings2,
   Plus,
   Cuboid,
+  Palette,
 } from "lucide-react";
 import { useEditor } from "../store/editor";
 import { triangleCount } from "../engine/geometry";
@@ -33,6 +34,9 @@ import {
   Toggle,
 } from "./common";
 import { AIPanel } from "./AIPanel";
+import { BackgroundPanel } from "./BackgroundPanel";
+import { SimpleInspector } from "./SimpleInspector";
+import { useWorkspace } from "../store/workspace";
 import {
   DEFAULT_MATERIAL,
   type MaterialData,
@@ -127,6 +131,7 @@ function VectorFields({
 }
 export function PropertiesPanel() {
   const panel = useEditor((s) => s.panel);
+  const expert = useWorkspace((s) => s.expert);
   return (
     <aside className="properties-panel">
       <div className="inspector-tabs">
@@ -135,18 +140,33 @@ export function PropertiesPanel() {
           onClick={() => useEditor.setState({ panel: "properties" })}
         >
           <SlidersHorizontal size={14} />
-          Propriétés
+          Objet
+        </button>
+        <button
+          className={panel === "background" ? "active" : ""}
+          onClick={() => useEditor.setState({ panel: "background" })}
+        >
+          <Palette size={14} />
+          Fond
         </button>
         <button
           className={panel === "ai" ? "active" : ""}
           onClick={() => useEditor.setState({ panel: "ai" })}
         >
           <Sparkles size={14} />
-          Studio IA
+          Assistant
           <span className="tiny-ai-dot" />
         </button>
       </div>
-      {panel === "ai" ? <AIPanel /> : <Inspector />}
+      {panel === "ai" ? (
+        <AIPanel />
+      ) : panel === "background" ? (
+        <BackgroundPanel />
+      ) : expert ? (
+        <Inspector />
+      ) : (
+        <SimpleInspector />
+      )}
     </aside>
   );
 }

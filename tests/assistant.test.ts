@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { executePlan, parseAssistantPlan } from "../src/services/assistant";
+import { worldBounds } from "../src/engine/library";
 import { createPrimitive } from "../src/engine/geometry";
 import { DEFAULT_RENDER, type SceneDocument } from "../src/types";
 function document(): SceneDocument {
@@ -170,6 +171,124 @@ describe("Assistant : validation et exécution atomique", () => {
       }),
     ).toThrow("modifiable");
     expect(d.nodes).toHaveLength(1);
+  });
+  it("crée un robot de vrais maillages sans modifier la scène originale", () => {
+    const d = document();
+    const result = executePlan(d, [], {
+      message: "Robot proposé",
+      actions: [
+        {
+          type: "create_asset",
+          asset: "robot",
+          size: 2,
+          position: [5, 0, 0],
+          name: "Robot",
+        },
+      ],
+    });
+    expect(result.document.nodes).toHaveLength(19);
+    expect(result.selection).toHaveLength(18);
+    expect(
+      result.document.nodes
+        .slice(1)
+        .every((n) => n.geometry && n.name.startsWith("Robot")),
+    ).toBe(true);
+    expect(d.nodes).toHaveLength(1);
+  });
+  it("pose et centre une sélection par actions validées", () => {
+    const d = document();
+    d.nodes[0].transform.position = [8, 7, 4];
+    const result = executePlan(d, [d.nodes[0].id], {
+      message: "Disposition proposée",
+      actions: [
+        { type: "layout", operation: "ground" },
+        { type: "layout", operation: "center" },
+      ],
+    });
+    expect(result.document.nodes[0].transform.position).toEqual([0, 1, 0]);
+    expect(worldBounds(result.document.nodes[0]).min.y).toBe(0);
+    expect(d.nodes[0].transform.position).toEqual([8, 7, 4]);
+  });
+  it("configure les lumières et les caméras créées dans le même plan", () => {
+    const d = document();
+    const result = executePlan(d, [], {
+      message: "Éclairage et cadrage proposés",
+      actions: [
+        { type: "create_light", lightType: "spot", name: "Projecteur" },
+        {
+          type: "set_light",
+          target: "Projecteur",
+          color: "#ffbb66",
+          intensity: 75,
+          angle: 30,
+          targetPoint: [0, 1, 0],
+          castShadow: false,
+        },
+        { type: "create_camera", name: "Vue" },
+        { type: "set_camera", target: "Vue", fov: 60, targetPoint: [0, 2, 0] },
+      ],
+    });
+    expect(result.document.nodes[1].light).toMatchObject({
+      color: "#ffbb66",
+      intensity: 75,
+      angle: 30,
+      target: [0, 1, 0],
+      castShadow: false,
+    });
+    expect(result.document.nodes[2].camera).toMatchObject({
+      fov: 60,
+      target: [0, 2, 0],
+    });
+  });
+  it("propose un dégradé, la rotation HDR et la suppression des guides sans mutation", () => {
+    const d = document();
+    const result = executePlan(d, [], {
+      message: "Fond proposé",
+      actions: [
+        {
+          type: "render",
+          background: "#112233",
+          backgroundEnd: "#445566",
+          backgroundMode: "gradient",
+          environmentRotation: 90,
+          environmentIntensity: 0.8,
+          grid: false,
+          axes: false,
+        },
+      ],
+    });
+    expect(result.document.render).toMatchObject({
+      background: "#112233",
+      backgroundEnd: "#445566",
+      backgroundMode: "gradient",
+      environmentRotation: 90,
+      environmentIntensity: 0.8,
+      grid: false,
+      axes: false,
+    });
+    expect(d.render).toEqual(DEFAULT_RENDER);
+  });
+  it("rejette les créations inconnues, les mauvaises cibles et les paramètres hors limites atomiquement", () => {
+    for (const action of [
+      { type: "create_asset", asset: "inconnu" },
+      { type: "create_asset", asset: "robot", size: 50 },
+      { type: "layout", operation: "random" },
+      { type: "set_light" },
+      { type: "set_camera", fov: 180 },
+      { type: "render", environmentRotation: 360 },
+    ]) {
+      const d = document();
+      expect(() =>
+        executePlan(d, [d.nodes[0].id], {
+          message: "Refus",
+          actions: [
+            { type: "create_primitive", primitive: "sphere", name: "Nouvelle" },
+            action,
+          ],
+        }),
+      ).toThrow();
+      expect(d.nodes).toHaveLength(1);
+    }
   });
   it("convertit les rotations de degrés en radians", () => {
     const d = document();

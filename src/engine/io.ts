@@ -447,9 +447,24 @@ export function validateDocument(value: unknown): SceneDocument {
       fail("Une caméra du projet est invalide.");
     return { ...n, material };
   });
-  const render = { ...DEFAULT_RENDER, ...d.render };
+  const render = {
+    ...DEFAULT_RENDER,
+    ...d.render,
+    backgroundMode: d.render.backgroundMode ?? "color",
+  };
   if (
     !color(render.background) ||
+    !color(render.backgroundEnd) ||
+    !["color", "gradient", "image", "environment"].includes(
+      render.backgroundMode,
+    ) ||
+    !finite(render.environmentRotation, -180, 180) ||
+    (render.backgroundImage !== undefined &&
+      (typeof render.backgroundImage !== "string" ||
+        render.backgroundImage.length > 12 * 1024 * 1024 ||
+        !/^data:image\/(png|jpeg|webp);base64,/.test(
+          render.backgroundImage,
+        ))) ||
     !color(render.fogColor) ||
     !finite(render.exposure, 0.01, 10) ||
     !finite(render.gamma, 0.1, 5) ||

@@ -68,6 +68,9 @@ try {
   await page.evaluate(async () => {
     window.__editorStore = (await import("/src/store/editor.ts")).useEditor;
     window.__aiStore = (await import("/src/store/ai.ts")).useAI;
+    (await import("/src/store/workspace.ts")).useWorkspace
+      .getState()
+      .setExpert(true);
   });
   assert.equal(await page.locator(".viewport-error").count(), 0);
   await page.evaluate(async () => {
@@ -90,7 +93,7 @@ try {
       .click();
   assert.equal((await state()).count, 12);
   console.log("PASS: huit primitives en un clic");
-  await page.getByRole("button", { name: "Propriétés", exact: true }).click();
+  await page.getByRole("button", { name: "Objet", exact: true }).click();
   const positionInput = page.getByRole("spinbutton", {
     name: "Position X",
     exact: true,
@@ -470,12 +473,16 @@ try {
       endpoint: `http://localhost:${port}/v1`,
       apiKey: "",
       model: "integration-test",
+      review: false,
+      vision: false,
     };
     await useAI.getState().saveSettings(settings);
   }, port);
   await page
-    .getByRole("button", { name: "Photo vers 3D", exact: true })
+    .getByRole("button", { name: "Assistant", exact: true })
+    .first()
     .click();
+  await page.getByRole("button", { name: "Photo → 3D", exact: true }).click();
   const png = await page.evaluate(() => {
     const canvas = document.createElement("canvas");
     canvas.width = 64;
@@ -485,13 +492,11 @@ try {
     ctx.fillRect(0, 0, 64, 64);
     return canvas.toDataURL("image/png").split(",")[1];
   });
-  await page
-    .getByLabel("Importer une photo pour l’IA")
-    .setInputFiles({
-      name: "integration-photo.png",
-      mimeType: "image/png",
-      buffer: Buffer.from(png, "base64"),
-    });
+  await page.getByLabel("Importer une photo pour l’IA").setInputFiles({
+    name: "integration-photo.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(png, "base64"),
+  });
   await page
     .getByRole("button", { name: "Générer le modèle 3D", exact: true })
     .click();
@@ -520,7 +525,10 @@ try {
   console.log(
     "PASS: photo → tâche → suivi → téléchargement GLB → scène normalisée → galerie, via une API de test HTTP",
   );
-  await page.getByRole("button", { name: "Assistant", exact: true }).click();
+  await page
+    .locator(".ai-subtabs")
+    .getByRole("button", { name: "Assistant", exact: true })
+    .click();
   await page
     .getByLabel("Votre demande à l’assistant")
     .fill("Rends cet objet en acier brossé rouge");
