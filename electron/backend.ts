@@ -57,6 +57,7 @@ export function validateSettings(value: AISettings): AISettings {
     throw new Error("Choisissez entre 100 et 300 000 polygones.");
   if (
     typeof value.image.texture !== "boolean" ||
+    !["openai", "anthropic"].includes(value.chat.protocol) ||
     typeof value.chat.jsonMode !== "boolean" ||
     typeof value.chat.review !== "boolean" ||
     typeof value.chat.vision !== "boolean" ||
@@ -154,7 +155,12 @@ export class LocalBackend {
     if (url.origin !== base.origin)
       throw new Error("La requête doit rester sur le serveur configuré.");
     const headers: Record<string, string> = {};
-    if (service.apiKey) headers.Authorization = `Bearer ${service.apiKey}`;
+    if (request.service === "chat" && settings.chat.protocol === "anthropic") {
+      // La clé n’est pas fournie par le renderer et ne quitte jamais l’origine validée.
+      headers["anthropic-version"] = "2023-06-01";
+      if (service.apiKey) headers["x-api-key"] = service.apiKey;
+    } else if (service.apiKey)
+      headers.Authorization = `Bearer ${service.apiKey}`;
     let body: BodyInit | undefined;
     if (request.form) {
       const form = new FormData();

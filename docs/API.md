@@ -103,7 +103,7 @@ Le suivi local est limité à vingt minutes. Les erreurs et l’identifiant de t
 
 L’existence d’un paramètre dans l’interface ne remplace pas les droits, quotas ou évolutions du contrat du fournisseur. Le modèle et l’URL restent configurables. Aucun résultat artificiel n’est substitué à une erreur de service.
 
-## Assistant OpenAI-compatible
+## Assistant OpenAI-compatible, Claude et Venice
 
 Configurez une URL de base, par exemple `https://api.openai.com/v1` ou `http://localhost:11434/v1`. Une URL se terminant par `/chat/completions` est également reconnue. **Détecter** utilise `GET /models`. **Tester l’IA** et la conversation utilisent `POST /chat/completions` : le premier vérifie une vraie réponse JSON `{ "message": "…", "actions": [] }`, sans action sur la scène, avec une limite réduite de tokens.
 
@@ -111,7 +111,7 @@ Le corps de conversation contient `model`, les messages et le contexte de scène
 
 Les modèles standards reçoivent `temperature` et `max_tokens: 12000`. Pour les modèles de raisonnement **sur l’origine officielle OpenAI** identifiés `gpt-5` et suivants ou `o1/o3/o4`, la température est omise et le corps utilise `max_completion_tokens: 20000` ainsi que `reasoning_effort: high|medium|low`. Les serveurs compatibles personnalisés ne reçoivent pas automatiquement ces paramètres spécifiques à OpenAI. Si activé, `response_format: {"type":"json_object"}` impose un objet JSON. Le test utilise un effort faible et une limite réduite.
 
-Les préréglages cloud proposent `gpt-6-sol` / `gpt-5.4-mini` et les préréglages locaux Ollama / LM Studio. Les noms proposés ne garantissent ni l’accès du compte ni une qualité mesurée : la découverte et le test doivent vérifier le serveur réel. Aucun modèle de langage ni aucune clé n’est inclus. Le probe local interroge uniquement `http://127.0.0.1:11434/v1/models`, avec un délai de quatre secondes, sans en-tête de clé cloud.
+Les préréglages incluent OpenAI `gpt-6-sol` / `gpt-5.4-mini`, Claude natif (voir ci-dessous), Venice et les serveurs locaux Ollama / LM Studio. Les noms proposés ne garantissent ni l’accès du compte ni une qualité mesurée : la découverte et le test doivent vérifier le serveur réel. Aucun modèle de langage ni aucune clé n’est inclus. Le probe local interroge uniquement `http://127.0.0.1:11434/v1/models`, avec un délai de quatre secondes, sans en-tête de clé cloud.
 
 Le serveur doit fournir `choices[0].message.content` comme **chaîne contenant un objet JSON** :
 
@@ -147,6 +147,39 @@ Le serveur doit fournir `choices[0].message.content` comme **chaîne contenant u
   ]
 }
 ```
+
+### Claude / Anthropic natif
+
+Les paramètres `chat.protocol` valent `openai` ou `anthropic`. Les configurations anciennes gardent le format OpenAI, sauf si leur endpoint vise l’origine officielle Anthropic, qui migre vers le format natif sans perdre la clé. Le format peut aussi être choisi explicitement pour une passerelle personnalisée.
+
+Les préréglages Claude Opus, Sonnet et Haiku utilisent `https://api.anthropic.com/v1`. Le backend envoie `x-api-key: <clé personnelle>` et `anthropic-version: 2023-06-01`, **pas** d’Authorization Bearer. La clé n’est jamais dans le corps de requête. Les contrôles d’origine et le refus des redirections s’appliquent aussi à Claude.
+
+- Modèles : `GET /v1/models?limit=100`, pagination avec `after_id` et `last_id` / `has_more`, au plus dix pages. Les modèles `lifecycle: retired` sont exclus. Les capacités `image_input.supported` et la limite `max_tokens` sont lues si fournies.
+- Inférence : `POST /v1/messages`. `system` est un champ séparé ; `messages` ne contient que des rôles user/assistant. `max_tokens` vaut au plus 12 000 pour un plan, 512 pour le test, réduit à la limite annoncée par le modèle si elle est connue. Les paramètres de température, de raisonnement et de format OpenAI ne sont pas transmis.
+- Vision : un bloc `{ "type": "image", "source": { "type": "base64", "media_type": "image/jpeg", "data": "…" } }` puis le bloc de texte utilisateur. Seules les images intégrées sont acceptées par cet adaptateur.
+- Mode JSON : un outil `proposer_plan_3dmaker` avec `input_schema` décrit `{message, actions}` ; `tool_choice` impose cet outil et désactive les outils parallèles. Le logiciel lit uniquement son `tool_use.input`, puis le soumet au même parseur et worker que les autres fournisseurs. **Ce n’est pas une exécution de code ni un accès arbitraire aux outils.** Tout autre outil ou plusieurs outils sont refusés.
+- Sans mode structuré : les blocs `text` sont réunis et doivent toujours contenir le JSON de plan. Les blocs de raisonnement ne sont pas lus comme du contenu exécutable. Les refus et réponses tronquées (`max_tokens`) provoquent une erreur sans mutation.
+
+Les modèles proposés `claude-opus-5-5`, `claude-sonnet-5-5` et `claude-haiku-5-5` figurent dans les types du SDK Anthropic consulté ; l’accès du compte et une inférence réussie restent à vérifier avec Détecter/Tester. Une clé API Anthropic distincte est nécessaire, pas simplement un abonnement Claude.
+
+### Venice.ai
+
+Le préréglage utilise **`https://api.venice.ai/api/v1`**, clé API Bearer personnelle et format OpenAI-compatible.
+
+- Modèles : `GET /api/v1/models?type=text`. Seuls les modèles textuels non hors ligne sont retenus. Les champs `model_spec.capabilities.supportsVision`, `supportsResponseSchema`, `supportsReasoningEffort`, `reasoningEffortOptions`, `maxCompletionTokens` et `traits` sont pris en compte lorsqu’ils existent. Les capacités connues sont conservées cinq minutes en mémoire, sans aucune clé.
+- Le modèle proposé `default` est un **trait Venice**, pas le nom d’un modèle inventé. Après découverte, l’interface propose le modèle concret du trait compatible avec les options demandées. Son accès doit encore être vérifié par inférence ; un catalogue public ne prouve pas la validité de la clé.
+- Inférence : `POST /api/v1/chat/completions`, `max_completion_tokens` au plus 12 000 (1 500 pour le test), réduit à la limite publiée. Le mode JSON utilise `response_format: {type: "json_object"}` uniquement si activé. La vision conserve les blocs `image_url` OpenAI.
+- `venice_parameters` : `include_venice_system_prompt: false`, `strip_thinking_response: true`, `enable_web_search: "off"`. Le test ajoute `disable_thinking: true` ; cette demande n’implique pas que tout raisonnement ni toute facturation est supprimé chez chaque modèle. L’effort configuré n’est envoyé que s’il figure dans les options déclarées par le catalogue.
+- Un modèle explicitement sans vision/JSON structuré désactive ces options dans l’interface. Un texte JSON reste validé avant d’appliquer quoi que ce soit. `reasoning_content` n’est jamais interprété comme un plan. `content_filter`, un refus ou une réponse tronquée (`length`) provoquent une erreur sans mutation.
+
+Ces intégrations concernent l’assistant de scène, pas une API neuronale photo → GLB. Tous les fournisseurs passent par la même validation locale, proposition, contrôle de scène obsolète et application atomique annulable.
+
+### Références de contrat consultées
+
+- [Types Messages Anthropic](https://github.com/anthropics/anthropic-sdk-typescript/blob/main/src/resources/messages/messages.ts), [authentification/version](https://github.com/anthropics/anthropic-sdk-typescript/blob/main/src/client.ts) et [Models](https://github.com/anthropics/anthropic-sdk-typescript/blob/main/src/resources/models.ts).
+- [Contrat chat Venice](https://github.com/veniceai/skills/blob/main/skills/venice-chat/SKILL.md) et [catalogue Models Venice](https://github.com/veniceai/skills/blob/main/skills/venice-models/SKILL.md).
+
+Les contrats évoluent : ces références établissent la forme des requêtes et les noms proposés, **pas** une preuve d’inférence live, de disponibilité pour votre compte ou de qualité mesurée.
 
 ### Commandes autorisées
 

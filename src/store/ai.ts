@@ -85,6 +85,7 @@ export const useAI = create<AIState>((set, get) => ({
               ...settings,
               chat: {
                 ...settings.chat,
+                protocol: preset.protocol,
                 endpoint: preset.endpoint,
                 model:
                   chooseRecommendedModel(probe.models, preset.endpoint) ||
@@ -140,6 +141,7 @@ export const useAI = create<AIState>((set, get) => ({
         ...get().settings,
         chat: {
           ...get().settings.chat,
+          protocol: preset.protocol,
           endpoint: preset.endpoint,
           model:
             chooseRecommendedModel(probe.models, preset.endpoint) ||

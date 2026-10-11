@@ -126,6 +126,109 @@ describe("Pont IA sécurisé et stockage local", () => {
     });
     expect(JSON.parse(options.body as string).model).toBe(s.chat.model);
   });
+  it("authentifie Claude avec x-api-key et anthropic-version, sans Bearer", async () => {
+    const s = structuredClone(DEFAULT_AI_SETTINGS);
+    s.chat = {
+      ...s.chat,
+      protocol: "anthropic",
+      endpoint: "https://api.anthropic.com/v1",
+      model: "claude-sonnet-5-5",
+      apiKey: "test-anthropic-only",
+    };
+    await backend.saveSettings(s);
+    const fetch = vi.fn(
+      async (_url: RequestInfo | URL, _options?: RequestInit) =>
+        new Response(JSON.stringify({ content: [] }), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    for (const method of ["GET", "POST"] as const)
+      await backend.request({
+        service: "chat",
+        method,
+        url: `${s.chat.endpoint}/${method === "GET" ? "models" : "messages"}`,
+        ...(method === "POST" ? { body: { model: s.chat.model } } : {}),
+      });
+    for (const [, options] of fetch.mock.calls) {
+      expect(options?.headers).toMatchObject({
+        "x-api-key": "test-anthropic-only",
+        "anthropic-version": "2023-06-01",
+      });
+      expect(options?.headers).not.toHaveProperty("Authorization");
+    }
+  });
+  it("ne transfère pas une clé Claude à une autre origine", async () => {
+    const s = structuredClone(DEFAULT_AI_SETTINGS);
+    s.chat = {
+      ...s.chat,
+      protocol: "anthropic",
+      endpoint: "https://api.anthropic.com/v1",
+      apiKey: "test-anthropic-only",
+    };
+    await backend.saveSettings(s);
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    await expect(
+      backend.request({
+        service: "chat",
+        method: "POST",
+        url: "https://api.venice.ai/api/v1/messages",
+      }),
+    ).rejects.toThrow("serveur configuré");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("utilise Bearer pour Venice même si la précédente configuration était Claude", async () => {
+    const s = structuredClone(DEFAULT_AI_SETTINGS);
+    s.chat = {
+      ...s.chat,
+      protocol: "openai",
+      endpoint: "https://api.venice.ai/api/v1",
+      apiKey: "test-venice-only",
+      model: "default",
+    };
+    await backend.saveSettings(s);
+    const fetch = vi.fn(
+      async (_url: RequestInfo | URL, _options?: RequestInit) =>
+        new Response(JSON.stringify({ choices: [] }), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    await backend.request({
+      service: "chat",
+      method: "POST",
+      body: { model: "default" },
+    });
+    expect(fetch.mock.calls[0][1]?.headers).toMatchObject({
+      Authorization: "Bearer test-venice-only",
+    });
+    expect(fetch.mock.calls[0][1]?.headers).not.toHaveProperty("x-api-key");
+    expect(fetch.mock.calls[0][1]?.headers).not.toHaveProperty(
+      "anthropic-version",
+    );
+  });
+  it("ne change pas l’authentification photo quand Claude est sélectionné", async () => {
+    const s = structuredClone(DEFAULT_AI_SETTINGS);
+    s.chat.protocol = "anthropic";
+    s.image.apiKey = "test-image-only";
+    await backend.saveSettings(s);
+    const fetch = vi.fn(
+      async (_url: RequestInfo | URL, _options?: RequestInit) =>
+        new Response("{}", { headers: { "content-type": "application/json" } }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    await backend.request({ service: "image", method: "POST", body: {} });
+    expect(fetch.mock.calls[0][1]?.headers).toMatchObject({
+      Authorization: "Bearer test-image-only",
+    });
+    expect(fetch.mock.calls[0][1]?.headers).not.toHaveProperty("x-api-key");
+  });
+  it("rejette un format d’API inconnu", () => {
+    const s = structuredClone(DEFAULT_AI_SETTINGS);
+    (s.chat as unknown as { protocol: string }).protocol = "arbitraire";
+    expect(() => validateSettings(s)).toThrow("Options IA");
+  });
   it("traduit les erreurs API pour l’utilisateur", async () => {
     vi.stubGlobal(
       "fetch",

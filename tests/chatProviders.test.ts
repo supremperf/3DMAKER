@@ -9,6 +9,9 @@ import {
   chooseRecommendedModel,
   isChatConfigured,
   listChatModels,
+  listChatModelDetails,
+  getChatModelInfo,
+  requestChatCompletion,
   testChatInference,
   updateChatEndpoint,
 } from "../src/services/chatProviders";
@@ -178,5 +181,185 @@ describe("IA préconfigurée, modèles réels et vérification", () => {
     await expect(testChatInference(DEFAULT_AI_SETTINGS)).rejects.toThrow(
       "format de commandes",
     );
+  });
+});
+
+describe("Catalogues et inférence Claude / Venice", () => {
+  const native: AISettings = {
+    ...DEFAULT_AI_SETTINGS,
+    chat: {
+      ...DEFAULT_AI_SETTINGS.chat,
+      protocol: "anthropic",
+      endpoint: "https://api.anthropic.com/v1",
+      model: "claude-sonnet-5-5",
+      apiKey: "test-only",
+    },
+  };
+  const venice: AISettings = {
+    ...DEFAULT_AI_SETTINGS,
+    chat: {
+      ...DEFAULT_AI_SETTINGS.chat,
+      protocol: "openai",
+      endpoint: "https://api.venice.ai/api/v1",
+      model: "default",
+      apiKey: "test-only",
+      vision: false,
+    },
+  };
+  it("suit les pages Claude et ignore les modèles retirés", async () => {
+    vi.mocked(bridge.request)
+      .mockResolvedValueOnce({
+        status: 200,
+        data: {
+          data: [
+            {
+              id: "claude-sonnet-5-5",
+              capabilities: { image_input: { supported: true } },
+              max_tokens: 64000,
+            },
+          ],
+          has_more: true,
+          last_id: "claude-sonnet-5-5",
+        },
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        data: {
+          data: [
+            { id: "claude-opus-5-5" },
+            { id: "retired-claude", lifecycle: "retired" },
+          ],
+          has_more: false,
+        },
+      });
+    const models = await listChatModelDetails(native);
+    expect(models.map((m) => m.id)).toEqual([
+      "claude-opus-5-5",
+      "claude-sonnet-5-5",
+    ]);
+    expect(models[1]).toMatchObject({ vision: true, maxTokens: 64000 });
+    expect(vi.mocked(bridge.request).mock.calls[0][0].url).toBe(
+      "https://api.anthropic.com/v1/models?limit=100",
+    );
+    expect(vi.mocked(bridge.request).mock.calls[1][0].url).toContain(
+      "after_id=claude-sonnet-5-5",
+    );
+  });
+  it("refuse une pagination Claude cyclique", async () => {
+    vi.mocked(bridge.request).mockResolvedValue({
+      status: 200,
+      data: {
+        data: [{ id: "claude-test" }],
+        has_more: true,
+        last_id: "claude-test",
+      },
+    });
+    await expect(listChatModels(native)).rejects.toThrow("pagination");
+    expect(bridge.request).toHaveBeenCalledTimes(2);
+  });
+  it("ne lance aucune requête de découverte déjà annulée", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      listChatModels(native, controller.signal),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(bridge.request).not.toHaveBeenCalled();
+  });
+  it("distingue le catalogue textuel Venice, les modèles hors ligne et les capacités", async () => {
+    vi.mocked(bridge.request).mockResolvedValue({
+      status: 200,
+      data: {
+        data: [
+          {
+            id: "fixture-glm",
+            type: "text",
+            model_spec: {
+              maxCompletionTokens: 4096,
+              traits: ["default"],
+              capabilities: {
+                supportsVision: false,
+                supportsResponseSchema: true,
+                supportsReasoningEffort: true,
+                reasoningEffortOptions: ["high"],
+              },
+            },
+          },
+          { id: "image-model", type: "image" },
+          { id: "offline-model", type: "text", model_spec: { offline: true } },
+        ],
+      },
+    });
+    expect(await listChatModels(venice)).toEqual(["fixture-glm"]);
+    expect(vi.mocked(bridge.request).mock.calls[0][0].url).toBe(
+      "https://api.venice.ai/api/v1/models?type=text",
+    );
+    expect(getChatModelInfo(venice.chat)).toMatchObject({
+      id: "fixture-glm",
+      maxTokens: 4096,
+      vision: false,
+      jsonSchema: true,
+    });
+  });
+  it("teste Claude avec une réponse native tool_use sans action de scène", async () => {
+    vi.mocked(bridge.request).mockResolvedValue({
+      status: 200,
+      data: {
+        content: [
+          {
+            type: "tool_use",
+            name: "proposer_plan_3dmaker",
+            input: { message: "Connexion établie", actions: [] },
+          },
+        ],
+        stop_reason: "tool_use",
+      },
+    });
+    await testChatInference(native);
+    expect(bridge.request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://api.anthropic.com/v1/messages",
+        body: expect.objectContaining({
+          max_tokens: 512,
+          system: expect.any(String),
+          tools: expect.any(Array),
+        }),
+      }),
+    );
+  });
+  it("teste Venice avec ses paramètres et sans format Claude", async () => {
+    vi.mocked(bridge.request).mockResolvedValue({
+      status: 200,
+      data: {
+        choices: [{ message: { content: '{"message":"OK","actions":[]}' } }],
+      },
+    });
+    await testChatInference(venice);
+    expect(bridge.request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://api.venice.ai/api/v1/chat/completions",
+        body: expect.objectContaining({
+          max_completion_tokens: 1500,
+          venice_parameters: expect.objectContaining({
+            include_venice_system_prompt: false,
+            disable_thinking: true,
+          }),
+        }),
+      }),
+    );
+    expect(vi.mocked(bridge.request).mock.calls[0][0].body).not.toHaveProperty(
+      "tools",
+    );
+  });
+  it("annule l’attente d’une vraie requête sans inventer de réponse", async () => {
+    vi.mocked(bridge.request).mockImplementation(() => new Promise(() => {}));
+    const controller = new AbortController();
+    const pending = requestChatCompletion(
+      native,
+      { system: "test", messages: [{ role: "user", content: "test" }] },
+      controller.signal,
+    );
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(bridge.request).toHaveBeenCalledTimes(1);
   });
 });

@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { ASSETS } from "../engine/library";
 import { addLibraryAsset } from "./CreationDialog";
-import { isChatConfigured, isOfficialOpenAI } from "../services/chatProviders";
+import { isChatConfigured, chatProviderLabel } from "../services/chatProviders";
 import { useAI } from "../store/ai";
 import { useEditor } from "../store/editor";
 import { imageProviderNames } from "../services/imageAI";
@@ -419,10 +419,7 @@ function ChatPanel() {
               ai.connection === "ready" ? "ready-dot" : "connection-dot"
             }
           />
-          {isOfficialOpenAI(ai.settings.chat.endpoint)
-            ? "IA cloud"
-            : "Serveur personnel"}{" "}
-          · {ai.settings.chat.model}
+          {chatProviderLabel(ai.settings.chat)} · {ai.settings.chat.model}
           <Settings2 size={12} />
         </button>
       )}

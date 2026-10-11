@@ -1,4 +1,5 @@
 export type AIProvider = "meshy" | "luma" | "stability" | "generic";
+export type ChatProtocol = "openai" | "anthropic";
 export interface AISettings {
   image: {
     provider: AIProvider;
@@ -10,6 +11,7 @@ export interface AISettings {
     texture: boolean;
   };
   chat: {
+    protocol: ChatProtocol;
     endpoint: string;
     apiKey: string;
     model: string;
@@ -31,6 +33,7 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
     texture: true,
   },
   chat: {
+    protocol: "openai",
     endpoint: "https://api.openai.com/v1",
     apiKey: "",
     model: "gpt-6-sol",
@@ -104,6 +107,21 @@ export function upgradeAISettings(value: AISettings): AISettings {
     throw new Error("Configuration IA invalide.");
   return {
     image: { ...DEFAULT_AI_SETTINGS.image, ...value.image },
-    chat: { ...DEFAULT_AI_SETTINGS.chat, ...value.chat },
+    chat: {
+      ...DEFAULT_AI_SETTINGS.chat,
+      ...value.chat,
+      protocol: value.chat.protocol ?? inferChatProtocol(value.chat.endpoint),
+    },
   };
+}
+
+/** Les anciennes configurations Claude utilisant l’origine officielle passent au format natif. */
+export function inferChatProtocol(endpoint: string): ChatProtocol {
+  try {
+    return new URL(endpoint).hostname === "api.anthropic.com"
+      ? "anthropic"
+      : "openai";
+  } catch {
+    return "openai";
+  }
 }

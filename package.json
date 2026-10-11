@@ -22,6 +22,7 @@
     "postinstall": "node node_modules/electron/install.js",
     "test:browser": "node tests/browser/smoke.mjs",
     "test:browser:simple": "node tests/browser/simple.mjs",
+    "test:browser:providers": "node tests/browser/providers.mjs",
     "package:sources": "node scripts/package-sources.mjs"
   },
   "dependencies": {

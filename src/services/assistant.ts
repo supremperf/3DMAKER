@@ -1,10 +1,8 @@
-import { abortable } from "./abort";
-import { bridge } from "./bridge";
 import { useEditor } from "../store/editor";
 import { runGeometryJob } from "../engine/jobs";
 import type { AssistantJobResult } from "../engine/calculations";
 import { parseAssistantPlan, type AssistantPlan } from "./assistantPlan";
-import { chatBase, isChatConfigured, isOfficialOpenAI } from "./chatProviders";
+import { isChatConfigured, requestChatCompletion } from "./chatProviders";
 import { viewport } from "../engine/ViewportEngine";
 import { readAsDataURL } from "./bridge";
 export { parseAssistantPlan, executePlan } from "./assistantPlan";
@@ -89,16 +87,6 @@ export async function prepareAssistant(
           : undefined,
       })),
   });
-  const endpoint = `${chatBase(settings.chat.endpoint)}/chat/completions`;
-  const reasoning =
-    isOfficialOpenAI(settings.chat.endpoint) &&
-    /^(gpt-[5-9]|o[134])(?:[.-]|$)/.test(settings.chat.model);
-  const generationOptions = reasoning
-    ? {
-        max_completion_tokens: 20000,
-        reasoning_effort: settings.chat.reasoning,
-      }
-    : { temperature: settings.chat.temperature, max_tokens: 12000 };
   let image: string | undefined;
   if (settings.chat.vision && viewport.get()) {
     const blob = await viewport
@@ -106,48 +94,20 @@ export async function prepareAssistant(
       .capture(896, 672, "image/jpeg", false, signal);
     image = await readAsDataURL(blob);
   }
-  const userContent = image
-    ? [
-        { type: "text", text: input },
-        { type: "image_url", image_url: { url: image, detail: "low" } },
-      ]
-    : input;
-  if (signal.aborted) throw new DOMException("Demande annulée.", "AbortError");
-  const response = await abortable(
-    bridge.request({
-      service: "chat",
-      url: endpoint,
-      method: "POST",
-      timeoutMs: 180000,
-      body: {
-        model: settings.chat.model,
-        ...generationOptions,
-        ...(settings.chat.jsonMode
-          ? { response_format: { type: "json_object" } }
-          : {}),
-        messages: [
-          {
-            role: "system",
-            content: `${systemPrompt}\nScène actuelle : ${context}`,
-          },
-          ...messages
-            .slice(-10)
-            .map((m) => ({ role: m.role, content: m.content })),
-          { role: "user", content: userContent },
-        ],
-      },
-    }),
+  const content = await requestChatCompletion(
+    settings,
+    {
+      system: `${systemPrompt}\nScène actuelle : ${context}`,
+      messages: [
+        ...messages
+          .slice(-10)
+          .map((m) => ({ role: m.role, content: m.content })),
+        { role: "user", content: input },
+      ],
+      image,
+    },
     signal,
   );
-  if (signal.aborted) throw new DOMException("Demande annulée.", "AbortError");
-  const data = response.data as {
-    choices?: { message?: { content?: string } }[];
-  };
-  const content = data?.choices?.[0]?.message?.content;
-  if (!content || typeof content !== "string")
-    throw new Error(
-      "Le serveur de chat n’a retourné aucun message. Vérifiez le modèle et le format OpenAI-compatible.",
-    );
   const plan = parseAssistantPlan(content);
   if (useEditor.getState().document !== before)
     throw new Error(

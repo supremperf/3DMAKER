@@ -5,9 +5,10 @@ Date : **11 octobre 2026**. Environnement : Node.js 26.11.1, Linux, Chromium 153
 ## Résultats constatés
 
 - `npm run build` : **réussi**. Trois configurations TypeScript strictes, renderer Vite, workers géométriques, processus principal Electron et preload compilés.
-- `npm test` : **107 tests réussis, 9 suites**. Géométrie (27), plans assistant (15), backend (12), fournisseurs chat (14), bibliothèque (16), import/export/projets (5), fonds (9), historique (5), services photo (4).
+- `npm test` : **139 tests réussis, 10 suites**. Géométrie (27), plans assistant (15), backend (17), fournisseurs chat (21), protocoles Claude/Venice (20), bibliothèque (16), import/export/projets (5), fonds (9), historique (5), services photo (4).
 - `npm run test:browser` : **réussi**, aucune erreur JavaScript non interceptée.
 - `npm run test:browser:simple` : **réussi**, aucune erreur JavaScript non interceptée.
+- `npm run test:browser:providers` : **réussi**, aucune erreur JavaScript non interceptée.
 
 ### Parcours Expert
 
@@ -19,9 +20,17 @@ Photo → création de tâche HTTP → suivi → téléchargement → modèle é
 
 Ajout de forme, coordonnées, poser au sol et annulation ; palette Ctrl K, concentration F10 et Simple/Expert ; fonds unis, dégradés, photo PNG réellement importée et HDR ; bibliothèque de maillages ajoutée en une transaction, undo/redo.
 
-Capture PNG transparente **640 × 480** inspectée pixel par pixel : **224 669 pixels entièrement transparents** et **77 381 pixels opaques**. L’un des coins appartient à un objet dans ce cadrage ; les trois autres sont transparents. Fond et grille sont rétablis après capture.
+Capture PNG transparente **640 × 480** inspectée pixel par pixel : **224 622 pixels entièrement transparents** et **77 452 pixels opaques** au dernier passage. L’un des coins appartient à un objet dans ce cadrage ; les trois autres sont transparents. Fond et grille sont rétablis après capture.
 
 Découverte HTTP des modèles et sélection d’un nom retourné par le serveur ; vraie requête POST de test avec réponse JSON sans action ; envoi d’une capture JPEG au format multimodal ; préparation d’un plan sans mutation ; confirmation, changement réel du matériau et annulation ; refus d’application après modification de la scène.
+
+### Parcours Claude / Venice
+
+Claude Opus/Sonnet/Haiku dans le sélecteur, clé conservée entre familles et effacée au passage à Venice ; catalogue Anthropic en deux pages ; vrai test POST HTTP au format Messages, en-têtes `x-api-key` / `anthropic-version` sans Bearer ; JPEG réellement capturé en bloc image natif ; réponse `tool_use.input` validée dans le worker, application d’un matériau orange et annulation.
+
+Venice avec Bearer séparé, catalogue textuel, modèle concret du trait `default` et exclusion des modèles hors ligne ; vraie requête de test HTTP, paramètres Venice, capture JPEG au format OpenAI ; matériau bleu réellement appliqué puis annulé. Un modèle sans vision ni schéma désactive ces options, répond en texte JSON, et sa proposition peut être ignorée sans mutation. Le format, l’endpoint et le modèle sont retrouvés après rechargement.
+
+**Les URLs cloud sont redirigées vers un serveur HTTP de test uniquement dans ce scénario.** Le pont backend, les formats d’authentification, le renderer, les captures, le parseur et le worker sont réels ; la réponse du modèle reste une fixture, pas une inférence chez Anthropic/Venice. Aucune clé réelle ni aucun appel cloud facturé n’a été utilisé.
 
 ### Contrôles unitaires additionnels
 
@@ -46,6 +55,7 @@ npm run build
 npx playwright install chromium
 npm run test:browser
 npm run test:browser:simple
+npm run test:browser:providers
 ```
 
 Les scénarios créent des serveurs et des stockages temporaires isolés puis les ferment. Ils n’exigent aucune clé personnelle. `CHROMIUM_EXECUTABLE_PATH` et `CHROMIUM_ARGS_JSON` permettent de sélectionner un Chromium existant dans un environnement contraint.

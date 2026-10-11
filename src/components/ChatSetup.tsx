@@ -10,8 +10,14 @@ import {
 import type { AISettings } from "../shared";
 import {
   CHAT_PRESETS,
-  chooseRecommendedModel,
-  listChatModels,
+  findChatPreset,
+  listChatModelDetails,
+  recommendChatModel,
+  getChatModelInfo,
+  chatProtocol,
+  isChatConfigured,
+  isOfficialOpenAI,
+  requiresChatKey,
   testChatInference,
   updateChatEndpoint,
 } from "../services/chatProviders";
@@ -29,18 +35,9 @@ export function ChatSetup({ draft, onChange, busy, setBusy, showKeys }: Props) {
     [error, setError] = useState(""),
     [result, setResult] = useState("");
   const [custom, setCustom] = useState(false);
-  const exactPreset = CHAT_PRESETS.find(
-    (p) => p.endpoint === draft.chat.endpoint && p.model === draft.chat.model,
-  );
-  const preset = custom
-    ? undefined
-    : exactPreset ||
-      CHAT_PRESETS.find(
-        (p) =>
-          p.endpoint === draft.chat.endpoint &&
-          (p.model === draft.chat.model ||
-            (p.id !== "openai-fast" && p.id !== "lmstudio")),
-      );
+  const preset = custom ? undefined : findChatPreset(draft.chat);
+  const native = chatProtocol(draft.chat) === "anthropic";
+  const modelInfo = getChatModelInfo(draft.chat);
   const patch = (change: Partial<AISettings["chat"]>) => {
     setResult("");
     onChange({ ...draft, chat: { ...draft.chat, ...change } });
@@ -62,6 +59,7 @@ export function ChatSetup({ draft, onChange, busy, setBusy, showKeys }: Props) {
       /* Un brouillon d’URL incomplet ne bloque pas le choix d’un préréglage. */
     }
     patch({
+      protocol: selected.protocol,
       endpoint: selected.endpoint,
       model: selected.model,
       apiKey: sameOrigin ? draft.chat.apiKey : "",
@@ -77,19 +75,36 @@ export function ChatSetup({ draft, onChange, busy, setBusy, showKeys }: Props) {
     setResult("");
     try {
       await useAI.getState().saveSettings(draft);
-      const available = await listChatModels(draft);
-      setModels(available);
-      const recommended = chooseRecommendedModel(
-        available,
-        draft.chat.endpoint,
-      );
-      if (!available.includes(draft.chat.model) && recommended) {
-        const next = { ...draft, chat: { ...draft.chat, model: recommended } };
-        onChange(next);
-        await useAI.getState().saveSettings(next);
-      }
+      const available = await listChatModelDetails(draft);
+      setModels(available.map((model) => model.id));
+      const recommended = recommendChatModel(available, draft.chat);
+      const model = available.some((m) => m.id === draft.chat.model)
+        ? draft.chat.model
+        : recommended || draft.chat.model;
+      const info = available.find((m) => m.id === model);
+      const next = {
+        ...draft,
+        chat: {
+          ...draft.chat,
+          model,
+          vision: info?.vision === false ? false : draft.chat.vision,
+          jsonMode: info?.jsonSchema === false ? false : draft.chat.jsonMode,
+        },
+      };
+      onChange(next);
+      await useAI.getState().saveSettings(next);
+      const adjustments = [
+        draft.chat.vision && !next.chat.vision
+          ? "Vue de scène désactivée : ce modèle ne prend pas en charge les images."
+          : "",
+        draft.chat.jsonMode && !next.chat.jsonMode
+          ? "Mode JSON structuré désactivé : le plan devra être retourné en texte JSON."
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
       setResult(
-        `${available.length} modèle${available.length > 1 ? "s" : ""} disponible${available.length > 1 ? "s" : ""}. Testez l’IA pour vérifier une vraie réponse.`,
+        `${available.length} modèle${available.length > 1 ? "s" : ""} disponible${available.length > 1 ? "s" : ""}. ${adjustments} Testez l’IA pour vérifier une vraie réponse.`,
       );
     } catch (e) {
       setError((e as Error).message);
@@ -136,7 +151,7 @@ export function ChatSetup({ draft, onChange, busy, setBusy, showKeys }: Props) {
         </select>
         <small>
           {preset?.description ||
-            "Tout endpoint compatible OpenAI peut être configuré ci-dessous."}
+            "Configurez une API compatible OpenAI ou Anthropic dans les réglages ci-dessous."}
         </small>
       </label>
       {preset?.id === "ollama" && (
@@ -154,7 +169,7 @@ export function ChatSetup({ draft, onChange, busy, setBusy, showKeys }: Props) {
           </div>
         </div>
       )}
-      {(!preset || preset.id.startsWith("openai")) && (
+      {(!preset || preset.requiresKey) && (
         <label className="stacked-field">
           <span>Votre clé personnelle</span>
           <input
@@ -179,7 +194,15 @@ export function ChatSetup({ draft, onChange, busy, setBusy, showKeys }: Props) {
             list="chat-models"
             value={draft.chat.model}
             disabled={busy}
-            onChange={(e) => patch({ model: e.target.value })}
+            onChange={(e) => {
+              const model = e.target.value,
+                info = getChatModelInfo(draft.chat, model);
+              patch({
+                model,
+                ...(info?.vision === false ? { vision: false } : {}),
+                ...(info?.jsonSchema === false ? { jsonMode: false } : {}),
+              });
+            }}
           />
           <datalist id="chat-models">
             {models.map((m) => (
@@ -189,7 +212,10 @@ export function ChatSetup({ draft, onChange, busy, setBusy, showKeys }: Props) {
         </label>
         <Button
           icon={busy ? LoaderCircle : RefreshCw}
-          disabled={busy}
+          disabled={
+            busy ||
+            (native && requiresChatKey(draft.chat) && !draft.chat.apiKey.trim())
+          }
           onClick={() => void discover()}
         >
           Détecter
@@ -205,8 +231,14 @@ export function ChatSetup({ draft, onChange, busy, setBusy, showKeys }: Props) {
         label="Joindre une vue de la scène au modèle"
         value={draft.chat.vision}
         onChange={(vision) => patch({ vision })}
-        disabled={busy}
+        disabled={busy || modelInfo?.vision === false}
       />
+      {modelInfo?.vision === false && (
+        <p className="simple-hint">
+          Ce modèle indique ne pas accepter d’images ; aucune vue de scène n’est
+          transmise.
+        </p>
+      )}
       {draft.chat.vision && (
         <p className="simple-hint">
           Une capture 896 × 672 est transmise au fournisseur à chaque demande.
@@ -215,7 +247,23 @@ export function ChatSetup({ draft, onChange, busy, setBusy, showKeys }: Props) {
       )}
       <Section title="Réglages du serveur" defaultOpen={!preset}>
         <label className="stacked-field">
-          <span>URL de base OpenAI-compatible</span>
+          <span>Format de l’API</span>
+          <select
+            aria-label="Format de l’API de chat"
+            value={chatProtocol(draft.chat)}
+            disabled={busy}
+            onChange={(e) =>
+              patch({
+                protocol: e.target.value as AISettings["chat"]["protocol"],
+              })
+            }
+          >
+            <option value="openai">OpenAI-compatible (Venice, Ollama…)</option>
+            <option value="anthropic">Anthropic / Claude natif</option>
+          </select>
+        </label>
+        <label className="stacked-field">
+          <span>URL de base de l’API</span>
           <input
             aria-label="URL du serveur de chat"
             value={draft.chat.endpoint}
@@ -231,7 +279,7 @@ export function ChatSetup({ draft, onChange, busy, setBusy, showKeys }: Props) {
             exécutant 3DMAKER, pas le navigateur visiteur.
           </small>
         </label>
-        {preset && !preset.id.startsWith("openai") && (
+        {preset && !preset.requiresKey && (
           <label className="stacked-field">
             <span>Clé de votre serveur, si nécessaire</span>
             <input
@@ -245,40 +293,55 @@ export function ChatSetup({ draft, onChange, busy, setBusy, showKeys }: Props) {
           </label>
         )}
         <Toggle
-          label="Réponse JSON structurée"
+          label={
+            native ? "Plan JSON par outil Claude" : "Réponse JSON structurée"
+          }
           value={draft.chat.jsonMode}
-          disabled={busy}
+          disabled={busy || (!native && modelInfo?.jsonSchema === false)}
           onChange={(jsonMode) => patch({ jsonMode })}
         />
-        <label className="stacked-field">
-          <span>Raisonnement OpenAI</span>
-          <select
-            aria-label="Profondeur du raisonnement"
-            value={draft.chat.reasoning}
-            disabled={busy}
-            onChange={(e) =>
-              patch({
-                reasoning: e.target.value as AISettings["chat"]["reasoning"],
-              })
-            }
-          >
-            <option value="high">Approfondi</option>
-            <option value="medium">Équilibré</option>
-            <option value="low">Rapide</option>
-          </select>
-          <small>
-            Pour les modèles OpenAI de raisonnement. Les autres serveurs
-            utilisent leur propre moteur.
-          </small>
-        </label>
+        {!native && modelInfo?.jsonSchema === false && (
+          <p className="simple-hint">
+            Ce modèle ne propose pas de sortie JSON structurée. Le logiciel
+            vérifie toujours le plan JSON retourné en texte avant toute
+            modification.
+          </p>
+        )}
+        {isOfficialOpenAI(draft.chat.endpoint) && (
+          <label className="stacked-field">
+            <span>Raisonnement OpenAI</span>
+            <select
+              aria-label="Profondeur du raisonnement"
+              value={draft.chat.reasoning}
+              disabled={busy}
+              onChange={(e) =>
+                patch({
+                  reasoning: e.target.value as AISettings["chat"]["reasoning"],
+                })
+              }
+            >
+              <option value="high">Approfondi</option>
+              <option value="medium">Équilibré</option>
+              <option value="low">Rapide</option>
+            </select>
+            <small>
+              Pour les modèles OpenAI de raisonnement. Les autres serveurs
+              utilisent leur propre moteur.
+            </small>
+          </label>
+        )}
+        {native && (
+          <p className="simple-hint">
+            Claude utilise l’API Messages native. Le mode JSON demande un outil
+            de proposition, jamais du code exécuté. Les paramètres de
+            raisonnement OpenAI ne sont pas envoyés à Claude.
+          </p>
+        )}
       </Section>
       <Button
         variant="primary"
         icon={busy ? LoaderCircle : Check}
-        disabled={
-          busy ||
-          (!draft.chat.apiKey && draft.chat.endpoint.includes("api.openai.com"))
-        }
+        disabled={busy || !isChatConfigured(draft.chat)}
         onClick={() => void test()}
       >
         Tester l’IA
